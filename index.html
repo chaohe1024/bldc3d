@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>外转子 BLDC 减速电机 3D 工作原理演示</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        header {
+            padding: 1rem 2rem;
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header h1 { margin: 0; font-size: 1.4rem; color: #38bdf8; }
+        header .subtitle { color: #94a3b8; font-size: 0.85rem; margin-top: 0.2rem; }
+        .spec-badges { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .badge {
+            padding: 0.25rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: #334155;
+            color: #cbd5e1;
+        }
+        .badge.blue { background: #0c4a6e; color: #38bdf8; }
+        .badge.green { background: #064e3b; color: #34d399; }
+        .badge.orange { background: #431407; color: #fb923c; }
+        .container { padding: 1rem 2rem; max-width: 1800px; margin: 0 auto; }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 0.75rem;
+            background: #1e293b;
+            padding: 0.9rem 1.1rem;
+            border-radius: 0.75rem;
+            border: 1px solid #334155;
+            margin-bottom: 1rem;
+            align-items: end;
+        }
+        .control-group { display: flex; flex-direction: column; gap: 0.3rem; }
+        .control-group label { font-size: 0.75rem; color: #94a3b8; font-weight: 500; }
+        .control-group input[type="range"] { width: 100%; accent-color: #38bdf8; }
+        .control-group button, .control-group select {
+            padding: 0.4rem 0.7rem;
+            border-radius: 0.4rem;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: #e2e8f0;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        .control-group button { background: #0ea5e9; border-color: #0ea5e9; color: #fff; font-weight: 600; }
+        .control-group button:hover { background: #0284c7; }
+        .control-group button.secondary { background: #334155; border-color: #475569; }
+        .control-group button.secondary:hover { background: #475569; }
+        .value-display { font-size: 0.75rem; color: #38bdf8; min-width: 3rem; text-align: right; }
+        .range-row { display: flex; align-items: center; gap: 0.5rem; }
+        .main-layout { display: grid; grid-template-columns: 1fr 320px; gap: 1rem; }
+        @media (max-width: 1200px) { .main-layout { grid-template-columns: 1fr; } }
+        .canvas-wrap {
+            position: relative;
+            width: 100%;
+            height: 720px;
+            background: #0b1120;
+            border-radius: 0.75rem;
+            border: 1px solid #334155;
+            overflow: hidden;
+        }
+        .canvas-wrap canvas { display: block; width: 100%; height: 100%; }
+        .overlay-hint { position: absolute; top: 8px; left: 10px; font-size: 0.7rem; color: #64748b; pointer-events: none; }
+        .legend {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+            font-size: 0.72rem;
+            color: #94a3b8;
+            background: rgba(15, 23, 42, 0.75);
+            padding: 0.5rem 0.7rem;
+            border-radius: 0.5rem;
+        }
+        .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .chart-panel {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            width: 380px;
+            background: rgba(15, 23, 42, 0.88);
+            border: 1px solid #1e293b;
+            border-radius: 0.5rem;
+            padding: 0.5rem 0.7rem;
+        }
+        .chart-title { font-size: 0.75rem; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; }
+        .chart-title .hint { font-size: 0.65rem; color: #64748b; }
+        .chart-title button { background: #334155; border: 1px solid #475569; color: #e2e8f0; border-radius: 0.3rem; font-size: 0.65rem; padding: 0.1rem 0.5rem; cursor: pointer; }
+        .chart-title button:hover { background: #475569; }
+        #currentChart { width: 100%; height: 140px; display: block; }
+        .chart-legend { font-size: 0.68rem; color: #94a3b8; margin-top: 0.3rem; display: flex; flex-wrap: wrap; gap: 0.15rem 0.7rem; min-height: 1em; }
+        .chart-legend .chip { display: inline-flex; align-items: center; gap: 0.3rem; }
+        .chart-legend .chip .dot { width: 8px; height: 8px; }
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .info-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.75rem;
+            padding: 1rem;
+        }
+        .info-card h3 { margin: 0 0 0.75rem; font-size: 0.95rem; color: #38bdf8; }
+        .info-row { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.4rem; }
+        .info-row .label { color: #94a3b8; }
+        .info-row .value { color: #f1f5f9; font-weight: 600; font-family: "SFMono-Regular", Consolas, monospace; }
+        .phase-display { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+        .phase-box {
+            flex: 1;
+            text-align: center;
+            padding: 0.4rem;
+            border-radius: 0.4rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #fff;
+        }
+        .phase-a { background: #dc2626; }
+        .phase-b { background: #ca8a04; }
+        .phase-c { background: #2563eb; }
+        .explanation {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.75rem;
+            font-size: 0.85rem;
+            color: #cbd5e1;
+            line-height: 1.6;
+        }
+        .explanation code { background: #0f172a; padding: 0.1rem 0.3rem; border-radius: 0.3rem; color: #38bdf8; font-family: monospace; }
+        .toggle-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #cbd5e1; }
+        .toggle-row input[type="checkbox"] { accent-color: #38bdf8; }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>外转子 BLDC 减速电机 3D 工作原理</h1>
+            <div class="subtitle">BLDC 电磁场 · 行星齿轮减速 · 实时交互演示</div>
+        </div>
+        <div class="spec-badges">
+            <span class="badge blue">14 极对</span>
+            <span class="badge green">1:40 减速比</span>
+            <span class="badge orange">14 N·m 额定扭矩</span>
+            <span class="badge">24V / 48V</span>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="controls">
+            <div class="control-group">
+                <label>电转速（机械）</label>
+                <div class="range-row">
+                    <input type="range" id="speedSlider" min="0" max="100" step="1" value="30">
+                    <span class="value-display" id="speedValue">30</span>%
+                </div>
+            </div>
+            <div class="control-group">
+                <label>方向</label>
+                <button id="dirBtn" class="secondary">正转</button>
+            </div>
+            <div class="control-group">
+                <label>视图</label>
+                <select id="viewSelect">
+                    <option value="full" selected>整体视图</option>
+                    <option value="gearbox">减速器</option>
+                    <option value="motor">电机顶视</option>
+                    <option value="exploded">分解视图</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>电磁可视化</label>
+                <div class="toggle-row">
+                    <input type="checkbox" id="showField" checked>
+                    <span>磁场</span>
+                </div>
+            </div>
+            <div class="control-group">
+                <label>电流可视化</label>
+                <div class="toggle-row">
+                    <input type="checkbox" id="showCurrent" checked>
+                    <span>电流</span>
+                </div>
+            </div>
+            <div class="control-group">
+                <label>操作</label>
+                <div style="display:flex;gap:0.5rem;">
+                    <button id="playPauseBtn">暂停</button>
+                    <button id="resetBtn" class="secondary">重置</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-layout">
+            <div class="canvas-wrap">
+                <canvas id="canvas"></canvas>
+                <div class="overlay-hint">拖拽旋转 · 滚轮缩放 · 右键平移</div>
+                <div class="legend">
+                    <span><span class="dot" style="background:#dc2626"></span> A 相绕组</span>
+                    <span><span class="dot" style="background:#ca8a04"></span> B 相绕组</span>
+                    <span><span class="dot" style="background:#2563eb"></span> C 相绕组</span>
+                    <span><span class="dot" style="background:#ef4444"></span> N 极永磁体</span>
+                    <span><span class="dot" style="background:#3b82f6"></span> S 极永磁体</span>
+                    <span><span class="dot" style="background:#fbbf24"></span> 旋转磁场</span>
+                </div>
+                <div class="chart-panel">
+                    <div class="chart-title">
+                        <span>绕组电流波形 <span class="hint">点击绕组选中/取消，最多 6 个</span></span>
+                        <button id="clearCoils">清除</button>
+                    </div>
+                    <canvas id="currentChart" width="360" height="140"></canvas>
+                    <div class="chart-legend" id="chartLegend">未选中绕组 — 点击 3D 视图中的线圈</div>
+                </div>
+            </div>
+
+            <div class="side-panel">
+                <div class="info-card">
+                    <h3>电机参数</h3>
+                    <div class="info-row"><span class="label">类型</span><span class="value">外转子 BLDC</span></div>
+                    <div class="info-row"><span class="label">极对数</span><span class="value">14</span></div>
+                    <div class="info-row"><span class="label">减速比</span><span class="value">1:40</span></div>
+                    <div class="info-row"><span class="label">额定扭矩</span><span class="value">14 N·m</span></div>
+                    <div class="info-row"><span class="label">峰值扭矩</span><span class="value">40 N·m</span></div>
+                    <div class="info-row"><span class="label">额定转速</span><span class="value">36 rpm</span></div>
+                    <div class="info-row"><span class="label">相电感</span><span class="value">290 μH</span></div>
+                    <div class="info-row"><span class="label">相电阻</span><span class="value">0.72 Ω</span></div>
+                </div>
+
+                <div class="info-card">
+                    <h3>实时状态</h3>
+                    <div class="info-row"><span class="label">机械角 θm</span><span class="value" id="mechAngle">0.00 rad</span></div>
+                    <div class="info-row"><span class="label">电角度 θe</span><span class="value" id="elecAngle">0.00 rad</span></div>
+                    <div class="info-row"><span class="label">转子转速</span><span class="value" id="rotorSpeed">0 rpm</span></div>
+                    <div class="info-row"><span class="label">输出转速</span><span class="value" id="outputSpeed">0 rpm</span></div>
+                    <div class="info-row"><span class="label">减速比</span><span class="value">40:1</span></div>
+                </div>
+
+                <div class="info-card">
+                    <h3>三相电流</h3>
+                    <div class="phase-display">
+                        <div class="phase-box phase-a">A<br><span id="curA">0.0</span>A</div>
+                        <div class="phase-box phase-b">B<br><span id="curB">0.0</span>A</div>
+                        <div class="phase-box phase-c">C<br><span id="curC">0.0</span>A</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="explanation">
+            <strong>工作原理：</strong>
+            本电机采用 <code>14 极对</code> 外转子 BLDC 结构：定子在内（直径 43mm），28 块永磁体贴在外圈转子轭内壁。
+            三相绕组通入相位差 120° 的正弦电流，在气隙中产生正弦分布的旋转磁密（黄色箭头，长度 ∝ |B|，方向为径向）。
+            电角度 <code>θe = 14 × θm</code>，即转子每转一周，磁场旋转 14 周。
+            永磁体跟随旋转磁场同步转动，输出扭矩经 <code>1:40</code> 行星减速器放大后驱动负载。
+            <br>
+            <strong>减速器示意：</strong>
+            3D 中演示的是单级行星齿轮（太阳轮 12 齿 / 行星轮 18 齿 / 齿圈 48 齿），传动比 <code>i = 1 + 48/12 = 5:1</code>，
+            行星轮绝对转速 <code>-ω/3</code>（与太阳轮反向）。实际产品多为多级行星串联，总减速比 <code>40:1</code>。
+        </div>
+    </div>
+
+    <script src="lib/three.min.js"></script>
+    <script src="lib/OrbitControls.js"></script>
+    <script>
+        // ===== 电机参数（参考同类关节减速电机） =====
+        const MOTOR = {
+            polePairs: 14,           // 极对数
+            gearRatio: 40,           // 减速比
+            statorSlots: 24,         // 定子槽数
+            rotorMagnets: 28,        // 转子磁钢数 (14 对极)
+            ratedTorque: 14,         // N·m
+            peakTorque: 40,          // N·m
+            ratedSpeed: 36,          // rpm
+            maxPhaseCurrent: 4.11    // A
+        };
+
+        // ===== 全局状态 =====
+        const state = {
+            running: true,
+            direction: 1,            // 1 正转, -1 反转
+            speedPercent: 30,
+            view: 'full',
+            showField: true,
+            showCurrent: true,
+            mechAngle: 0,            // 机械角 (rad)
+            explodedOffset: 0        // 分解视图偏移
+        };
+
+        // 三相相位偏移（电角度，rad）
+        const phaseShifts = { A: 0, B: -2 * Math.PI / 3, C: -4 * Math.PI / 3 };
+
+        // ===== Three.js 场景 =====
+        const canvas = document.getElementById('canvas');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(canvas.parentElement.clientWidth, canvas.parentElement.clientHeight);
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0b1120);
+
+        const camera = new THREE.PerspectiveCamera(45, canvas.parentElement.clientWidth / canvas.parentElement.clientHeight, 0.01, 100);
+        camera.position.set(0.08, -0.14, 0.03);
+        camera.up.set(0, 0, 1);
+
+        const controls = new THREE.OrbitControls(camera, canvas);
+        controls.target.set(0, 0, 0.015);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+
+        // 灯光
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.9);
+        dirLight1.position.set(3, -3, 5);
+        scene.add(dirLight1);
+        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+        dirLight2.position.set(-2, 3, -2);
+        scene.add(dirLight2);
+
+        // ===== 辅助函数 =====
+        function createTorus(radius, tube, color, x, y, z, rotX = 0, rotY = 0, rotZ = 0) {
+            const geo = new THREE.TorusGeometry(radius, tube, 12, 32);
+            const mat = new THREE.MeshStandardMaterial({ color });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.rotation.set(rotX, rotY, rotZ);
+            return mesh;
+        }
+
+        function createBox(w, h, d, color, x, y, z, rotX = 0, rotY = 0, rotZ = 0) {
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mat = new THREE.MeshStandardMaterial({ color });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.rotation.set(rotX, rotY, rotZ);
+            return mesh;
+        }
+
+        function createCylinder(r1, r2, h, color, x, y, z, rotX = 0, rotY = 0, rotZ = 0, segments = 32) {
+            const geo = new THREE.CylinderGeometry(r1, r2, h, segments);
+            const mat = new THREE.MeshStandardMaterial({ color });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.rotation.set(rotX, rotY, rotZ);
+            return mesh;
+        }
+
+        /**
+         * 创建直齿圆柱齿轮
+         * @param {number} teeth 齿数
+         * @param {number} module 模数 (m)
+         * @param {number} thickness 厚度 (m)
+         * @param {number} color 颜色
+         * @param {boolean} isInternal 是否为内齿圈
+         */
+        function createGear(teeth, module, thickness, color, isInternal = false) {
+            const pitchRadius = teeth * module / 2;
+            const addendum = module;
+            const dedendum = 1.25 * module;
+
+            const group = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color });
+
+            if (!isInternal) {
+                // 外齿轮：轮体 + 向外突出的齿
+                const rootRadius = pitchRadius - dedendum;
+                const outerRadius = pitchRadius + addendum;
+
+                // 轮体（齿根圆柱）—— CylinderGeometry 轴线默认为 Y，转到 Z 与轮齿一致
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(rootRadius, rootRadius, thickness, 48), mat);
+                body.rotation.x = Math.PI / 2;
+                group.add(body);
+
+                // 轮齿
+                const halfToothAngle = Math.PI / teeth;
+                const tipHalfAngle = halfToothAngle * 0.35;
+                const rootHalfAngle = halfToothAngle * 0.75;
+
+                for (let i = 0; i < teeth; i++) {
+                    const angle = (i / teeth) * Math.PI * 2;
+
+                    // 单个齿的梯形截面
+                    const shape = new THREE.Shape();
+                    const x1 = rootRadius * Math.cos(angle - rootHalfAngle);
+                    const y1 = rootRadius * Math.sin(angle - rootHalfAngle);
+                    const x2 = outerRadius * Math.cos(angle - tipHalfAngle);
+                    const y2 = outerRadius * Math.sin(angle - tipHalfAngle);
+                    const x3 = outerRadius * Math.cos(angle + tipHalfAngle);
+                    const y3 = outerRadius * Math.sin(angle + tipHalfAngle);
+                    const x4 = rootRadius * Math.cos(angle + rootHalfAngle);
+                    const y4 = rootRadius * Math.sin(angle + rootHalfAngle);
+
+                    shape.moveTo(x1, y1);
+                    shape.lineTo(x2, y2);
+                    shape.lineTo(x3, y3);
+                    shape.lineTo(x4, y4);
+                    shape.closePath();
+
+                    const toothGeo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false });
+                    const tooth = new THREE.Mesh(toothGeo, mat);
+                    tooth.position.z = -thickness / 2;
+                    group.add(tooth);
+                }
+            } else {
+                // 内齿圈：轮体在外，齿向内突出
+                // 齿顶（最内）= 节圆 - 齿顶高，齿根（最外）= 节圆 + 齿根高
+                const toothTipRadius = pitchRadius - addendum;      // 23mm
+                const toothRootRadius = pitchRadius + dedendum;     // 25.25mm
+                const bodyOuterRadius = toothRootRadius + 0.004;    // 轮体外缘
+
+                // 外圈轮体：环形板（外缘 − 齿根圆），与轮齿一样沿 Z 方向拉伸
+                const bodyShape = new THREE.Shape();
+                bodyShape.absarc(0, 0, bodyOuterRadius, 0, Math.PI * 2, false);
+                const holePath = new THREE.Path();
+                holePath.absarc(0, 0, toothRootRadius, 0, Math.PI * 2, true);
+                bodyShape.holes.push(holePath);
+                const bodyGeo = new THREE.ExtrudeGeometry(bodyShape, { depth: thickness, bevelEnabled: false, curveSegments: 64 });
+                const body = new THREE.Mesh(bodyGeo, mat);
+                body.position.z = -thickness / 2;
+                group.add(body);
+
+                // 向内突出的齿（从齿根到齿顶）
+                const halfToothAngle = Math.PI / teeth;
+                const tipHalfAngle = halfToothAngle * 0.35;
+                const rootHalfAngle = halfToothAngle * 0.75;
+
+                for (let i = 0; i < teeth; i++) {
+                    const angle = (i / teeth) * Math.PI * 2;
+
+                    const shape = new THREE.Shape();
+                    // 齿根（外）较宽，齿顶（内）较窄
+                    const x1 = toothRootRadius * Math.cos(angle - rootHalfAngle);
+                    const y1 = toothRootRadius * Math.sin(angle - rootHalfAngle);
+                    const x2 = toothTipRadius * Math.cos(angle - tipHalfAngle);
+                    const y2 = toothTipRadius * Math.sin(angle - tipHalfAngle);
+                    const x3 = toothTipRadius * Math.cos(angle + tipHalfAngle);
+                    const y3 = toothTipRadius * Math.sin(angle + tipHalfAngle);
+                    const x4 = toothRootRadius * Math.cos(angle + rootHalfAngle);
+                    const y4 = toothRootRadius * Math.sin(angle + rootHalfAngle);
+
+                    shape.moveTo(x1, y1);
+                    shape.lineTo(x2, y2);
+                    shape.lineTo(x3, y3);
+                    shape.lineTo(x4, y4);
+                    shape.closePath();
+
+                    const toothGeo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false });
+                    const tooth = new THREE.Mesh(toothGeo, mat);
+                    tooth.position.z = -thickness / 2;
+                    group.add(tooth);
+                }
+            }
+
+            return group;
+        }
+
+        // ===== 电机模型 =====
+        const motorGroup = new THREE.Group();
+        scene.add(motorGroup);
+
+        // 尺寸（单位：米）。外转子 BLDC：定子在内（定子直径 43mm），
+        // 28 块永磁体交替 N/S 贴在外圈转子轭的内壁上，转子整体绕定子旋转
+        const R_STATOR_OUT = 0.0215;   // 定子外径（齿顶圆）43mm
+        const R_STATOR_YOKE = 0.015;   // 定子轭外径
+        const R_MAGNET_IN = 0.0232;    // 磁钢内表面半径（气隙外缘）
+        const R_MAGNET_OUT = 0.0245;   // 磁钢外表面半径（贴转子轭）
+        const R_ROTOR_OUT = 0.0265;    // 转子轭外径
+        const R_HOUSING = 0.0285;      // 机壳外径 57mm
+        const R_SHAFT = 0.003;         // 轴半径
+        const L_MOTOR = 0.0565;        // 电机总高
+        const L_STACK = 0.036;         // 铁芯叠长
+
+        // 机壳（半透明外壳，固定）
+        const statorOuter = createCylinder(R_HOUSING, R_HOUSING, L_MOTOR * 0.8, 0x6b7280, 0, 0, 0, Math.PI / 2);
+        statorOuter.material.transparent = true;
+        statorOuter.material.opacity = 0.15;
+        statorOuter.material.side = THREE.DoubleSide;
+        motorGroup.add(statorOuter);
+
+        // ===== 定子（固定，在内）=====
+        // 定子轭（环形铁芯，中心孔过轴）
+        const statorYokeShape = new THREE.Shape();
+        statorYokeShape.absarc(0, 0, R_STATOR_YOKE, 0, Math.PI * 2, false);
+        const statorYokeHole = new THREE.Path();
+        statorYokeHole.absarc(0, 0, R_SHAFT + 0.0008, 0, Math.PI * 2, true);
+        statorYokeShape.holes.push(statorYokeHole);
+        const statorYoke = new THREE.Mesh(
+            new THREE.ExtrudeGeometry(statorYokeShape, { depth: L_STACK, bevelEnabled: false, curveSegments: 48 }),
+            new THREE.MeshStandardMaterial({ color: 0x6b7280 })
+        );
+        statorYoke.position.z = -L_STACK / 2;
+        motorGroup.add(statorYoke);
+
+        // 定子齿（24 个，齿顶带靴）与三相集中绕组
+        const statorCore = new THREE.Group();
+        motorGroup.add(statorCore);
+        const coils = { A: [], B: [], C: [] };
+        const coilList = [];   // 全部绕组（供鼠标点选查询）
+        const phaseColors = { A: 0xdc2626, B: 0xca8a04, C: 0x2563eb };
+        // 每相共享一个材质，动画中按相电流调节发光强度
+        const coilMats = {};
+        ['A', 'B', 'C'].forEach((ph) => {
+            coilMats[ph] = new THREE.MeshStandardMaterial({
+                color: phaseColors[ph],
+                emissive: phaseColors[ph],
+                emissiveIntensity: 0.1
+            });
+        });
+        const toothStemH = R_STATOR_OUT - R_STATOR_YOKE - 0.0012; // 齿身径向高度
+        const rStem = R_STATOR_YOKE + toothStemH / 2;
+        const rShoe = R_STATOR_OUT - 0.0006;
+        for (let i = 0; i < MOTOR.statorSlots; i++) {
+            const angle = (i / MOTOR.statorSlots) * Math.PI * 2;
+            const phase = ['A', 'B', 'C'][i % 3];
+            const ca = Math.cos(angle), sa = Math.sin(angle);
+            // 齿身 + 齿靴（切向加宽，形成槽口）
+            const stem = createBox(0.0022, toothStemH, L_STACK, 0x9ca3af, rStem * ca, rStem * sa, 0, 0, 0, angle + Math.PI / 2);
+            const shoe = createBox(0.0042, 0.0012, L_STACK, 0x9ca3af, rShoe * ca, rShoe * sa, 0, 0, 0, angle + Math.PI / 2);
+            statorCore.add(stem);
+            statorCore.add(shoe);
+            // 集中绕组：套在齿身上的矩形线圈（两根轴向铜条 + 两端横连）
+            const coil = new THREE.Group();
+            const cw = 0.0012;                 // 线圈边到齿侧面的切向距离
+            const barR = 0.0009;               // 铜条半径
+            const sideLen = L_STACK + 0.004;   // 端部绕组伸出铁芯两端
+            [-cw, cw].forEach((off) => {
+                const bar = new THREE.Mesh(new THREE.CylinderGeometry(barR, barR, sideLen, 8), coilMats[phase]);
+                bar.rotation.x = Math.PI / 2;
+                bar.position.set(rStem * ca - off * sa, rStem * sa + off * ca, 0);
+                coil.add(bar);
+            });
+            [-1, 1].forEach((s) => {
+                const end = new THREE.Mesh(new THREE.CylinderGeometry(barR, barR, cw * 2, 8), coilMats[phase]);
+                end.rotation.z = angle;
+                end.position.set(rStem * ca, rStem * sa, s * sideLen / 2);
+                coil.add(end);
+            });
+            coils[phase].push(coil);
+            statorCore.add(coil);
+            // 点选用：记录槽位/相位，并附带一个选中高亮框（默认隐藏）
+            coil.userData.coilIndex = coilList.length;
+            const highlight = new THREE.Mesh(
+                new THREE.BoxGeometry(0.0044, toothStemH + 0.002, sideLen + 0.002),
+                new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false })
+            );
+            highlight.position.set(rStem * ca, rStem * sa, 0);
+            highlight.rotation.z = angle + Math.PI / 2;
+            highlight.visible = false;
+            coil.add(highlight);
+            coilList.push({ group: coil, phase, slot: i, highlight });
+        }
+
+        // ===== 转子（外转子：环形转子轭 + 内壁磁钢 + 端盖）=====
+        const rotorGroup = new THREE.Group();
+        motorGroup.add(rotorGroup);
+
+        // 转子轭（环形圆筒，半透明以便观察内部磁钢与磁场）
+        const yokeMat = new THREE.MeshStandardMaterial({ color: 0x6b7280, transparent: true, opacity: 0.25, side: THREE.DoubleSide });
+        const yokeShape = new THREE.Shape();
+        yokeShape.absarc(0, 0, R_ROTOR_OUT, 0, Math.PI * 2, false);
+        const yokeHole = new THREE.Path();
+        yokeHole.absarc(0, 0, R_MAGNET_OUT, 0, Math.PI * 2, true);
+        yokeShape.holes.push(yokeHole);
+        const rotorYoke = new THREE.Mesh(
+            new THREE.ExtrudeGeometry(yokeShape, { depth: L_STACK + 0.006, bevelEnabled: false, curveSegments: 64 }),
+            yokeMat
+        );
+        rotorYoke.position.z = -L_STACK / 2 - 0.003;
+        rotorGroup.add(rotorYoke);
+
+        // 转子端盖（连接电机轴，带动轴旋转）
+        const capShape = new THREE.Shape();
+        capShape.absarc(0, 0, R_ROTOR_OUT, 0, Math.PI * 2, false);
+        const capHole = new THREE.Path();
+        capHole.absarc(0, 0, R_SHAFT, 0, Math.PI * 2, true);
+        capShape.holes.push(capHole);
+        const rotorCap = new THREE.Mesh(
+            new THREE.ExtrudeGeometry(capShape, { depth: 0.003, bevelEnabled: false, curveSegments: 64 }),
+            yokeMat
+        );
+        rotorCap.position.z = L_STACK / 2 + 0.003;
+        rotorGroup.add(rotorCap);
+
+        // 永磁体（28 块弧形磁钢，交替 N/S，贴在转子轭内壁）
+        const magnets = [];
+        for (let i = 0; i < MOTOR.rotorMagnets; i++) {
+            const angle = (i / MOTOR.rotorMagnets) * Math.PI * 2;
+            const isN = i % 2 === 0;
+            const segLen = (Math.PI * 2 / MOTOR.rotorMagnets) * 0.8;
+            const magShape = new THREE.Shape();
+            magShape.absarc(0, 0, R_MAGNET_OUT - 0.0001, angle - segLen / 2, angle + segLen / 2, false);
+            magShape.absarc(0, 0, R_MAGNET_IN, angle + segLen / 2, angle - segLen / 2, true);
+            magShape.closePath();
+            const magGeo = new THREE.ExtrudeGeometry(magShape, { depth: L_STACK, bevelEnabled: false, curveSegments: 4 });
+            const magMat = new THREE.MeshStandardMaterial({ color: isN ? 0xff2222 : 0x2266ff });
+            const magnet = new THREE.Mesh(magGeo, magMat);
+            magnet.position.z = -L_STACK / 2;
+            magnets.push({ mesh: magnet, angle, isN });
+            rotorGroup.add(magnet);
+        }
+
+        // 电机轴（动力输入端：把转子转矩传给太阳轮，轴端止于太阳轮内部）
+        const motorShaft = createCylinder(R_SHAFT, R_SHAFT, 0.066, 0x94a3b8, 0, 0, 0.023, Math.PI / 2);
+        rotorGroup.add(motorShaft);
+        // 电机轴表面的纵向黄色标记条（随转子转动，显示电机轴转速）
+        const shaftMark = createBox(0.0008, 0.0016, 0.026, 0xfbbf24, R_SHAFT + 0.0001, 0, 0.035, 0, 0, 0);
+        rotorGroup.add(shaftMark);
+
+        // ===== 旋转磁场可视化 =====
+        // 气隙磁密按正弦分布 B(θ) = B0·cos(p·θ − θe)，随电角度旋转；
+        // 用一圈径向箭头表示：长度 ∝ |B|，方向随正负径向朝外/朝内
+        const fieldGroup = new THREE.Group();
+        motorGroup.add(fieldGroup);
+
+        const R_GAP = (R_STATOR_OUT + R_MAGNET_IN) / 2; // 气隙中心半径
+        const fieldArrows = [];
+        for (let i = 0; i < MOTOR.rotorMagnets; i++) {
+            const angle = (i / MOTOR.rotorMagnets) * Math.PI * 2;
+            const arrow = new THREE.Group();
+            const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffdd00, transparent: true, opacity: 0.95, depthTest: false });
+            const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0004, 0.0004, 0.0026, 6), arrowMat);
+            shaft.position.y = 0.0013;
+            shaft.renderOrder = 999;
+            const head = new THREE.Mesh(new THREE.CylinderGeometry(0, 0.001, 0.0014, 6), arrowMat);
+            head.position.y = 0.0033;
+            head.renderOrder = 999;
+            arrow.add(shaft);
+            arrow.add(head);
+            arrow.position.set(R_GAP * Math.cos(angle), R_GAP * Math.sin(angle), 0);
+            arrow.rotation.z = angle - Math.PI / 2; // 本地 +Y 指向径向外侧
+            fieldArrows.push({ arrow, angle });
+            fieldGroup.add(arrow);
+        }
+
+        // ===== 行星减速器 =====
+        const gearboxGroup = new THREE.Group();
+        gearboxGroup.position.z = L_MOTOR * 0.8 + 0.01;
+        scene.add(gearboxGroup);
+
+        // 齿轮参数（模数 1mm）
+        const GEAR_MODULE = 0.001;
+        const GEAR_THICKNESS = 0.008;
+        const SUN_TEETH = 12;
+        const PLANET_TEETH = 18;
+        const RING_TEETH = 48;
+
+        // 节圆半径
+        const R_SUN = SUN_TEETH * GEAR_MODULE / 2;      // 6mm
+        const R_PLANET = PLANET_TEETH * GEAR_MODULE / 2; // 9mm
+        const R_RING = RING_TEETH * GEAR_MODULE / 2;     // 24mm
+        const PLANET_ORBIT_RADIUS = R_SUN + R_PLANET;    // 15mm
+        const SUN_PHASE = Math.PI / SUN_TEETH;           // 太阳轮初始相位：半个齿距
+
+        // 减速器外壳（半透明）
+        const housing = createCylinder(0.032, 0.032, 0.025, 0x334155, 0, 0, 0, Math.PI / 2);
+        housing.material.transparent = true;
+        housing.material.opacity = 0.15;
+        gearboxGroup.add(housing);
+
+        // 太阳轮（输入）—— 外齿轮，蓝色
+        const sunGear = createGear(SUN_TEETH, GEAR_MODULE, GEAR_THICKNESS, 0x3b82f6, false);
+        // 齿轮轴线已与 Z 轴平行，无需旋转；初始相位 +15°（半个齿距）使太阳轮齿槽正对三个行星轮
+        sunGear.rotation.z = SUN_PHASE;
+        gearboxGroup.add(sunGear);
+
+        // 行星轮（3 个）—— 外齿轮，橙色
+        // 所有齿轮轴线相互平行，均与 Z 轴平行
+        const planetGears = [];
+        const planetCarrier = new THREE.Group();
+        gearboxGroup.add(planetCarrier);
+        for (let i = 0; i < 3; i++) {
+            const angle = (i / 3) * Math.PI * 2;
+            const pg = createGear(PLANET_TEETH, GEAR_MODULE, GEAR_THICKNESS, 0xf59e0b, false);
+            // 行星轮中心位于太阳轮中心 + 节圆半径之和
+            pg.position.set(
+                PLANET_ORBIT_RADIUS * Math.cos(angle),
+                PLANET_ORBIT_RADIUS * Math.sin(angle),
+                0
+            );
+            // 初始相位 0：18 齿时每个行星轮都有齿正对太阳轮齿槽（120° 是 20° 齿距的整数倍）
+            planetGears.push({ mesh: pg, angle });
+            planetCarrier.add(pg);
+        }
+
+        // 齿圈（固定，内齿轮，灰色半透明——便于观察内部啮合）
+        // 初始相位 +3.75°（半个齿距）使齿圈齿槽正对行星轮
+        const ringGear = createGear(RING_TEETH, GEAR_MODULE, GEAR_THICKNESS, 0x94a3b8, true);
+        ringGear.rotation.z = Math.PI / RING_TEETH;
+        ringGear.traverse((o) => {
+            if (o.material) {
+                o.material.transparent = true;
+                o.material.opacity = 0.35;
+            }
+        });
+        gearboxGroup.add(ringGear);
+
+        // 行星架（输出）—— 三臂结构：中心毂 + 三条臂连接三个行星轮轴销，
+        // 把三个行星轮的公转收集为行星架整体的转动，再经输出轴/法兰/指针臂输出
+        const carrierMat = new THREE.MeshStandardMaterial({ color: 0x34d399 });
+        const carrierHub = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.003, 32), carrierMat);
+        carrierHub.rotation.x = Math.PI / 2;
+        carrierHub.position.z = 0.0095;
+        planetCarrier.add(carrierHub);
+        for (let i = 0; i < 3; i++) {
+            const angle = (i / 3) * Math.PI * 2;
+            const px = PLANET_ORBIT_RADIUS * Math.cos(angle);
+            const py = PLANET_ORBIT_RADIUS * Math.sin(angle);
+            // 臂：从中心毂伸向行星轮轴销
+            const armBar = new THREE.Mesh(new THREE.BoxGeometry(PLANET_ORBIT_RADIUS, 0.007, 0.003), carrierMat);
+            armBar.position.set(px / 2, py / 2, 0.0095);
+            armBar.rotation.z = angle;
+            planetCarrier.add(armBar);
+            // 臂端轴套
+            const boss = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 0.003, 16), carrierMat);
+            boss.rotation.x = Math.PI / 2;
+            boss.position.set(px, py, 0.0095);
+            planetCarrier.add(boss);
+            // 行星轮轴销（固定在行星架臂端，向下穿过行星轮中心）
+            const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.002, 0.014, 16), carrierMat);
+            pin.rotation.x = Math.PI / 2;
+            pin.position.set(px, py, 0.003);
+            planetCarrier.add(pin);
+        }
+
+        // 输出轴（轴线与 Z 平行）—— 行星架的延伸，整个模组的最终输出
+        const outputShaft = createCylinder(0.005, 0.005, 0.03, 0x94a3b8, 0, 0, 0.02, Math.PI / 2);
+        planetCarrier.add(outputShaft);
+        // 输出轴上的绿色标记条（随行星架转动；与电机轴黄色标记条的转速差即减速比）
+        const outputMark = createBox(0.001, 0.0018, 0.02, 0x34d399, 0.0052, 0, 0.02, 0, 0, 0);
+        planetCarrier.add(outputMark);
+        planetCarrier.add(outputShaft);
+
+        // 输出法兰（半透明，避免遮挡下方齿轮）
+        const flange = createCylinder(0.025, 0.025, 0.006, 0x475569, 0, 0, 0.035, Math.PI / 2);
+        flange.material.transparent = true;
+        flange.material.opacity = 0.4;
+        planetCarrier.add(flange);
+
+        // 输出指针臂（随行星架/输出轴转动，直观显示减速后的转速与转向）
+        const arm = createBox(0.032, 0.0025, 0.0015, 0x34d399, 0.012, 0, 0.0395, 0, 0, 0);
+        planetCarrier.add(arm);
+        const armTip = new THREE.Mesh(
+            new THREE.SphereGeometry(0.0022, 12, 12),
+            new THREE.MeshStandardMaterial({ color: 0xf87171, emissive: 0xf87171, emissiveIntensity: 0.5 })
+        );
+        armTip.position.set(0.028, 0, 0.0395);
+        planetCarrier.add(armTip);
+
+        // ===== 分解视图控制 =====
+        let explodedGroups = [
+            { group: motorGroup, baseZ: 0, offset: 0 },
+            { group: rotorGroup, baseZ: 0, offset: 0.035 },
+            { group: gearboxGroup, baseZ: L_MOTOR * 0.8 + 0.01, offset: 0.075 }
+        ];
+
+        // ===== UI 绑定 =====
+        const speedSlider = document.getElementById('speedSlider');
+        const speedValue = document.getElementById('speedValue');
+        const dirBtn = document.getElementById('dirBtn');
+        const viewSelect = document.getElementById('viewSelect');
+        const showField = document.getElementById('showField');
+        const showCurrent = document.getElementById('showCurrent');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        speedSlider.addEventListener('input', (e) => {
+            state.speedPercent = parseInt(e.target.value);
+            speedValue.textContent = state.speedPercent;
+        });
+        dirBtn.addEventListener('click', () => {
+            state.direction *= -1;
+            dirBtn.textContent = state.direction === 1 ? '正转' : '反转';
+        });
+        // 视图相机预设：切换视图时平滑过渡，到位后交还相机控制权（不影响拖拽）
+        function viewPreset(view) {
+            const gz = L_MOTOR * 0.8 + 0.01;
+            switch (view) {
+                case 'motor':    return { pos: [0.018, -0.024, 0.041], look: [0, 0, 0.004] }; // 相机置于减速器与电机之间，避免被减速器遮挡
+                case 'gearbox':  return { pos: [0.042, -0.052, gz + 0.045], look: [0, 0, gz + 0.004] }; // 偏低角度，避开法兰遮挡齿轮
+                case 'exploded': return { pos: [0.09, -0.15, 0.05], look: [0, 0, 0.03] };
+                default:         return { pos: [0.09, -0.16, 0.035], look: [0, 0, 0.022] };
+            }
+        }
+        let camTransition = null;
+        function applyView(view, instant) {
+            const p = viewPreset(view);
+            if (instant) {
+                camera.position.set(p.pos[0], p.pos[1], p.pos[2]);
+                controls.target.set(p.look[0], p.look[1], p.look[2]);
+                camTransition = null;
+            } else {
+                camTransition = p;
+            }
+        }
+        viewSelect.addEventListener('change', (e) => { state.view = e.target.value; applyView(state.view, false); });
+        // 初始化时读取下拉框当前值并直接到位
+        state.view = viewSelect.value;
+        applyView(state.view, true);
+
+        // ===== 绕组点选与电流波形图 =====
+        const chartCanvas = document.getElementById('currentChart');
+        const chartCtx = chartCanvas.getContext('2d');
+        const chartLegend = document.getElementById('chartLegend');
+        const selectedCoils = [];
+        const MAX_SEL = 6;
+        const chipSpans = {}; // coilIndex -> 瞬时值元素
+
+        function updateChartLegend() {
+            chartLegend.innerHTML = '';
+            Object.keys(chipSpans).forEach((k) => delete chipSpans[k]);
+            if (!selectedCoils.length) {
+                chartLegend.textContent = '未选中绕组 — 点击 3D 视图中的线圈';
+                return;
+            }
+            selectedCoils.forEach((idx) => {
+                const c = coilList[idx];
+                const colorHex = '#' + phaseColors[c.phase].toString(16).padStart(6, '0');
+                const chip = document.createElement('span');
+                chip.className = 'chip';
+                chip.innerHTML = `<span class="dot" style="background:${colorHex}"></span> 槽${c.slot + 1}·${c.phase}相&nbsp;<b></b>`;
+                chipSpans[idx] = chip.querySelector('b');
+                chartLegend.appendChild(chip);
+            });
+        }
+
+        function toggleCoil(idx) {
+            const i = selectedCoils.indexOf(idx);
+            if (i >= 0) selectedCoils.splice(i, 1);
+            else {
+                if (selectedCoils.length >= MAX_SEL) selectedCoils.shift();
+                selectedCoils.push(idx);
+            }
+            coilList.forEach((c, k) => { c.highlight.visible = selectedCoils.includes(k); });
+            updateChartLegend();
+        }
+
+        document.getElementById('clearCoils').addEventListener('click', () => {
+            selectedCoils.length = 0;
+            coilList.forEach((c) => { c.highlight.visible = false; });
+            updateChartLegend();
+        });
+
+        // 点击（区别于拖拽）拾取绕组
+        const raycaster = new THREE.Raycaster();
+        let downXY = null;
+        canvas.addEventListener('pointerdown', (e) => { downXY = [e.clientX, e.clientY]; });
+        canvas.addEventListener('pointerup', (e) => {
+            if (!downXY) return;
+            const moved = Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]);
+            downXY = null;
+            if (moved > 5) return; // 拖拽操作，不视为点击
+            const rect = canvas.getBoundingClientRect();
+            const ndc = new THREE.Vector2(
+                ((e.clientX - rect.left) / rect.width) * 2 - 1,
+                -((e.clientY - rect.top) / rect.height) * 2 + 1
+            );
+            raycaster.setFromCamera(ndc, camera);
+            const hits = raycaster.intersectObjects(statorCore.children, true);
+            for (const h of hits) {
+                let o = h.object;
+                while (o && o.userData.coilIndex === undefined) o = o.parent;
+                if (o && o.userData.coilIndex !== undefined) { toggleCoil(o.userData.coilIndex); break; }
+            }
+        });
+
+        // 波形图：横轴为电角度（2 个周期），纵轴归一化，叠加显示选中绕组
+        function drawChart(thetaE, Iamp) {
+            const W = chartCanvas.width, H = chartCanvas.height;
+            const ctx = chartCtx;
+            ctx.clearRect(0, 0, W, H);
+            ctx.fillStyle = 'rgba(2, 6, 23, 0.55)';
+            ctx.fillRect(0, 0, W, H);
+            const midY = H / 2, amp = H * 0.4;
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(0, midY); ctx.lineTo(W, midY); ctx.stroke();
+            ctx.strokeStyle = '#131c33';
+            for (let g = 1; g < 8; g++) {
+                const x = (g / 8) * W;
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+            }
+            if (!selectedCoils.length) return;
+            const span = 4 * Math.PI; // 2 个电周期
+            const norm = Math.max(Math.abs(Iamp), 0.2); // 小电流下归一化，保证波形可读
+            selectedCoils.forEach((idx) => {
+                const c = coilList[idx];
+                const shift = phaseShifts[c.phase];
+                ctx.strokeStyle = '#' + phaseColors[c.phase].toString(16).padStart(6, '0');
+                ctx.lineWidth = 1.6;
+                ctx.beginPath();
+                for (let px = 0; px <= W; px += 2) {
+                    const th = thetaE - span + (px / W) * span;
+                    const y = midY - (Math.sin(th + shift) * Iamp / norm) * amp;
+                    px === 0 ? ctx.moveTo(px, y) : ctx.lineTo(px, y);
+                }
+                ctx.stroke();
+                chipSpans[idx].textContent = (Iamp * Math.sin(thetaE + shift)).toFixed(2) + ' A';
+            });
+            ctx.fillStyle = '#64748b';
+            ctx.font = '10px monospace';
+            ctx.fillText(`幅值 ${Math.abs(Iamp).toFixed(2)} A · 横轴：电角度（2 周期）`, 6, 12);
+        }
+        showField.addEventListener('change', (e) => { state.showField = e.target.checked; fieldGroup.visible = state.showField; });
+        showCurrent.addEventListener('change', (e) => { state.showCurrent = e.target.checked; });
+        playPauseBtn.addEventListener('click', () => {
+            state.running = !state.running;
+            playPauseBtn.textContent = state.running ? '暂停' : '继续';
+        });
+        resetBtn.addEventListener('click', () => { state.mechAngle = 0; });
+
+        window.addEventListener('resize', () => {
+            const w = canvas.parentElement.clientWidth;
+            const h = canvas.parentElement.clientHeight;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        });
+
+        // ===== 动画循环 =====
+        const FIXED_DT = 1 / 240;
+        let lastTime = performance.now();
+        let accumulator = 0;
+
+        function updateInfo() {
+            const elecAngle = (state.mechAngle * MOTOR.polePairs) % (Math.PI * 2);
+            const rotorRpm = (state.speedPercent / 100) * MOTOR.ratedSpeed * state.direction;
+            const outputRpm = rotorRpm / MOTOR.gearRatio;
+
+            document.getElementById('mechAngle').textContent = (state.mechAngle % (Math.PI * 2)).toFixed(2) + ' rad';
+            document.getElementById('elecAngle').textContent = elecAngle.toFixed(2) + ' rad';
+            document.getElementById('rotorSpeed').textContent = rotorRpm.toFixed(1) + ' rpm';
+            document.getElementById('outputSpeed').textContent = outputRpm.toFixed(2) + ' rpm';
+
+            // 三相电流（幅值与速度成正比）
+            const I = (state.speedPercent / 100) * MOTOR.maxPhaseCurrent * state.direction;
+            const theta = state.mechAngle * MOTOR.polePairs;
+            document.getElementById('curA').textContent = (I * Math.sin(theta)).toFixed(2);
+            document.getElementById('curB').textContent = (I * Math.sin(theta - 2 * Math.PI / 3)).toFixed(2);
+            document.getElementById('curC').textContent = (I * Math.sin(theta - 4 * Math.PI / 3)).toFixed(2);
+        }
+
+        function animate(now) {
+            const frameDt = Math.min((now - lastTime) / 1000, 0.05);
+            lastTime = now;
+
+            if (state.running) {
+                // 机械角速度：rpm -> rad/s
+                const maxMechRpm = MOTOR.ratedSpeed; // 36 rpm 额定
+                const mechRpm = (state.speedPercent / 100) * maxMechRpm * state.direction;
+                const mechRadPerSec = mechRpm * 2 * Math.PI / 60;
+                state.mechAngle += mechRadPerSec * frameDt;
+            }
+
+            const thetaM = state.mechAngle;
+            const thetaE = thetaM * MOTOR.polePairs;
+
+            // 更新转子（外转子：磁钢随转子轭同步旋转）
+            rotorGroup.rotation.z = thetaM;
+
+            // 旋转磁场：气隙磁密 B(θ) = cos(p·θ − θe)，随电角度旋转
+            // 箭头长度 ∝ |B|，B 为负时箭头径向翻转
+            fieldArrows.forEach((f) => {
+                const B = Math.cos(MOTOR.polePairs * f.angle - thetaE);
+                const s = Math.max(Math.abs(B), 0.06) * (B >= 0 ? 1 : -1);
+                f.arrow.scale.set(1, s, 1);
+            });
+
+            // 三相电流 → 对应相绕组发光（幅值随转速百分比变化）
+            const drive = state.showCurrent ? state.speedPercent / 100 : 0;
+            ['A', 'B', 'C'].forEach((ph) => {
+                const i = Math.abs(Math.sin(thetaE + phaseShifts[ph]));
+                coilMats[ph].emissiveIntensity = 0.1 + 1.8 * i * drive;
+            });
+
+            // 选中绕组的电流波形图
+            const Iamp = (state.speedPercent / 100) * MOTOR.maxPhaseCurrent * state.direction;
+            drawChart(thetaE, Iamp);
+
+            // 更新减速器（行星齿轮运动学）
+            // 单级行星齿轮：太阳轮 12 齿，行星轮 18 齿，齿圈 48 齿
+            // 传动比 = 1 + Z_ring/Z_sun = 1 + 48/12 = 5:1
+            const sunAngle = thetaM + SUN_PHASE;          // 含初始啮合相位
+            const carrierAngle = thetaM / 5;              // 行星架输出转速
+            sunGear.rotation.z = sunAngle;
+            planetCarrier.rotation.z = carrierAngle;
+            // 行星轮绝对转速 = -ω_sun / 3（由啮合约束推导）
+            // 相对行星架的局部转速 = -ω_sun/3 - ω_carrier = -8θm/15
+            // 初始相位为 0（见装配代码注释）
+            planetGears.forEach((pg, i) => {
+                pg.mesh.rotation.z = -8 * thetaM / 15;
+            });
+
+            // 分解视图
+            const exploded = state.view === 'exploded' ? 1 : 0;
+            explodedGroups.forEach((eg) => {
+                eg.group.position.z = eg.baseZ + exploded * eg.offset;
+            });
+
+            // 视图切换：过渡到位后停止干预相机，用户可自由拖拽
+            if (camTransition) {
+                const tp = new THREE.Vector3(camTransition.pos[0], camTransition.pos[1], camTransition.pos[2]);
+                const tl = new THREE.Vector3(camTransition.look[0], camTransition.look[1], camTransition.look[2]);
+                camera.position.lerp(tp, 0.15);
+                controls.target.lerp(tl, 0.15);
+                if (camera.position.distanceTo(tp) < 0.0005) camTransition = null;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+
+            // 定期更新数值面板
+            if (Math.floor(now / 100) !== Math.floor((now - frameDt * 1000) / 100)) {
+                updateInfo();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        updateInfo();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
