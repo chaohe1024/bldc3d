@@ -621,10 +621,10 @@
         }
 
         // 电机轴（动力输入端：把转子转矩传给太阳轮，轴端止于太阳轮内部）
-        const motorShaft = createCylinder(R_SHAFT, R_SHAFT, 0.066, 0x94a3b8, 0, 0, 0.023, Math.PI / 2);
+        const motorShaft = createCylinder(R_SHAFT, R_SHAFT, 0.047, 0x94a3b8, 0, 0, 0.0135, Math.PI / 2);
         rotorGroup.add(motorShaft);
-        // 电机轴表面的纵向黄色标记条（随转子转动，显示电机轴转速）
-        const shaftMark = createBox(0.0008, 0.0016, 0.026, 0xfbbf24, R_SHAFT + 0.0001, 0, 0.035, 0, 0, 0);
+        // 电机轴表面的纵向黄色标记条（随转子转动，显示电机轴转速；只留机壳与太阳轮之间的外露段）
+        const shaftMark = createBox(0.0008, 0.0016, 0.01, 0xfbbf24, R_SHAFT + 0.0001, 0, 0.026, 0, 0, 0);
         rotorGroup.add(shaftMark);
 
         // ===== 旋转磁场可视化 =====
@@ -655,7 +655,8 @@
 
         // ===== 行星减速器 =====
         const gearboxGroup = new THREE.Group();
-        gearboxGroup.position.z = L_MOTOR * 0.8 + 0.01;
+        // 减速器紧贴电机机壳顶部（机壳顶 0.0226，减速器外壳底 0.0225）
+        gearboxGroup.position.z = 0.035;
         scene.add(gearboxGroup);
 
         // 齿轮参数（模数 1mm）
@@ -743,35 +744,34 @@
             planetCarrier.add(pin);
         }
 
-        // 输出轴（轴线与 Z 平行）—— 行星架的延伸，整个模组的最终输出
-        const outputShaft = createCylinder(0.005, 0.005, 0.03, 0x94a3b8, 0, 0, 0.02, Math.PI / 2);
+        // 输出轴（轴线与 Z 平行）—— 行星架的延伸，整个模组的最终输出；短轴从毂顶穿过外壳顶接法兰
+        const outputShaft = createCylinder(0.005, 0.005, 0.005, 0x94a3b8, 0, 0, 0.0138, Math.PI / 2);
         planetCarrier.add(outputShaft);
         // 输出轴上的绿色标记条（随行星架转动；与电机轴黄色标记条的转速差即减速比）
-        const outputMark = createBox(0.001, 0.0018, 0.02, 0x34d399, 0.0052, 0, 0.02, 0, 0, 0);
+        const outputMark = createBox(0.001, 0.0018, 0.0025, 0x34d399, 0.0052, 0, 0.0122, 0, 0, 0);
         planetCarrier.add(outputMark);
-        planetCarrier.add(outputShaft);
 
-        // 输出法兰（半透明，避免遮挡下方齿轮）
-        const flange = createCylinder(0.025, 0.025, 0.006, 0x475569, 0, 0, 0.035, Math.PI / 2);
+        // 输出法兰（半透明，避免遮挡下方齿轮），底面贴着减速器外壳顶
+        const flange = createCylinder(0.025, 0.025, 0.005, 0x475569, 0, 0, 0.015, Math.PI / 2);
         flange.material.transparent = true;
         flange.material.opacity = 0.4;
         planetCarrier.add(flange);
 
         // 输出指针臂（随行星架/输出轴转动，直观显示减速后的转速与转向）
-        const arm = createBox(0.032, 0.0025, 0.0015, 0x34d399, 0.012, 0, 0.0395, 0, 0, 0);
+        const arm = createBox(0.032, 0.0025, 0.0015, 0x34d399, 0.012, 0, 0.019, 0, 0, 0);
         planetCarrier.add(arm);
         const armTip = new THREE.Mesh(
             new THREE.SphereGeometry(0.0022, 12, 12),
             new THREE.MeshStandardMaterial({ color: 0xf87171, emissive: 0xf87171, emissiveIntensity: 0.5 })
         );
-        armTip.position.set(0.028, 0, 0.0395);
+        armTip.position.set(0.028, 0, 0.019);
         planetCarrier.add(armTip);
 
         // ===== 分解视图控制 =====
         let explodedGroups = [
             { group: motorGroup, baseZ: 0, offset: 0 },
             { group: rotorGroup, baseZ: 0, offset: 0.035 },
-            { group: gearboxGroup, baseZ: L_MOTOR * 0.8 + 0.01, offset: 0.075 }
+            { group: gearboxGroup, baseZ: 0.035, offset: 0.075 }
         ];
 
         // ===== UI 绑定 =====
@@ -794,16 +794,18 @@
         });
         // 视图相机预设：切换视图时平滑过渡，到位后交还相机控制权（不影响拖拽）
         function viewPreset(view) {
-            const gz = L_MOTOR * 0.8 + 0.01;
+            const gz = 0.035;
             switch (view) {
-                case 'motor':    return { pos: [0.018, -0.024, 0.041], look: [0, 0, 0.004] }; // 相机置于减速器与电机之间，避免被减速器遮挡
+                case 'motor':    return { pos: [0.02, -0.026, 0.045], look: [0, 0, 0.002] }; // 俯视电机本体（此时隐藏减速器）
                 case 'gearbox':  return { pos: [0.042, -0.052, gz + 0.045], look: [0, 0, gz + 0.004] }; // 偏低角度，避开法兰遮挡齿轮
-                case 'exploded': return { pos: [0.09, -0.15, 0.05], look: [0, 0, 0.03] };
-                default:         return { pos: [0.09, -0.16, 0.035], look: [0, 0, 0.022] };
+                case 'exploded': return { pos: [0.09, -0.16, 0.06], look: [0, 0, 0.055] };
+                default:         return { pos: [0.08, -0.15, 0.03], look: [0, 0, 0.018] };
             }
         }
         let camTransition = null;
         function applyView(view, instant) {
+            // 电机顶视时隐藏减速器，避免相机落进减速器外壳内部
+            gearboxGroup.visible = (view !== 'motor');
             const p = viewPreset(view);
             if (instant) {
                 camera.position.set(p.pos[0], p.pos[1], p.pos[2]);
