@@ -603,8 +603,10 @@
 
         function wirePt(r, th, z) { return new THREE.Vector3(r * Math.cos(th), r * Math.sin(th), z); }
         function wireTube(pts, colorHex, radius, ph) {
-            const curve = new THREE.CatmullRomCurve3(pts);
-            const geo = new THREE.TubeGeometry(curve, Math.max(32, pts.length * 8), radius || 0.00075, 6);
+            // 去掉相邻重复点（如走线层与引线头同高时竖直段退化为零长），防止 Frenet 帧计算异常
+            const clean = pts.filter((p, i) => i === 0 || p.distanceTo(pts[i - 1]) > 1e-6);
+            const curve = new THREE.CatmullRomCurve3(clean);
+            const geo = new THREE.TubeGeometry(curve, Math.max(32, clean.length * 8), radius || 0.00075, 6);
             const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colorHex }));
             mesh.userData.isWire = ph || true; // 标记为“线”并记录所属相，供双击整相显示
             return mesh;
@@ -618,13 +620,14 @@
         }
         // 线圈引线头位置：齿身中径 rStem、切向偏移 u（±cw），底端与总线同高
         const cwLead = 0.0012;
-        function leadTipPt(th, u) {
-            return new THREE.Vector3(rStem * Math.cos(th) - u * Math.sin(th), rStem * Math.sin(th) + u * Math.cos(th), zBus);
+        function axialPt(th, u, z) { // 引线头竖直延长线上、高度 z 处的点
+            return new THREE.Vector3(rStem * Math.cos(th) - u * Math.sin(th), rStem * Math.sin(th) + u * Math.cos(th), z);
         }
-        // 总线上的接入点：保持与引线头相同的切向偏移 u——同一线圈的两个引线头
-        // 分别接总线上两个不同的点，否则两引线会在总线上汇于一点，把线圈两端短接
-        function ringPt(th, u, r) {
-            return new THREE.Vector3(r * Math.cos(th) - u * Math.sin(th), r * Math.sin(th) + u * Math.cos(th), zBus);
+        function leadTipPt(th, u) { return axialPt(th, u, zBus); }
+        // 半径 r、高度 z 的走线环上的点（保持与引线头相同的切向偏移 u——
+        // 同一线圈的两个引线头分别接两个不同的点，避免两引线汇于一点被短接）
+        function ringPtZ(th, u, r, z) {
+            return new THREE.Vector3(r * Math.cos(th) - u * Math.sin(th), r * Math.sin(th) + u * Math.cos(th), z);
         }
 
         // 引线头与连接线之间的接头：线圈引线是竖直管口、连接线是水平管口，
@@ -648,31 +651,36 @@
             const slots = [];
             for (let s = pIdx; s < MOTOR.statorSlots; s += 3) slots.push(s);
             const slotAngle = (s) => (s / MOTOR.statorSlots) * Math.PI * 2;
-            // 1) 同相线圈串联：前一个线圈的引线头 2 → 总线走弧 → 后一个线圈的引线头 1
+            // 三相串联弧都沿整个圆周分布，同半径同高度必然叠成“三色线”；
+            // 故三相串联走线分三层平面（间隔 1.2mm，线径 1mm），引线头先竖直下到自己那层再走弧
+            const zChain = zBus - pIdx * 0.0012;
+            // 1) 同相线圈串联：前一个线圈的引线头 2 → 本相层面走弧 → 后一个线圈的引线头 1
             for (let k = 0; k + 1 < slots.length; k++) {
                 const th0 = slotAngle(slots[k]), th1 = slotAngle(slots[k + 1]);
-                const pts = [leadTipPt(th0, cwLead), ringPt(th0, cwLead, rBus)];
-                arcPts(pts, rBus, th0, th1, zBus);
-                pts.push(ringPt(th1, -cwLead, rBus), leadTipPt(th1, -cwLead));
-                wiringGroup.add(wireTube(pts, col, undefined, ph));
+                const pts = [leadTipPt(th0, cwLead), axialPt(th0, cwLead, zChain), ringPtZ(th0, cwLead, rBus, zChain)];
+                arcPts(pts, rBus, th0, th1, zChain);
+                pts.push(ringPtZ(th1, -cwLead, rBus, zChain), leadTipPt(th1, -cwLead));
+                wiringGroup.add(wireTube(pts, col, 0.0005, ph));
             }
-            // 2) 相引出线：首线圈的引线头 1 → 引出线环 → 机壳侧面端子
-            //    三相各用不同半径的走弧环（间隔 2mm，三环并行），避免三线叠合看不清
+            // 2) 相引出线：首线圈的引线头 1 → 竖直下到最底层 → 各自半径的走弧环（三环并行）→ 端子
+            //    引出线层面低于全部串联层，径向穿越时互不接触
             const thStart = slotAngle(slots[0]);
             const thPin = TERM_ANGLE + pinTang[pIdx] / 0.0355;
             const rLeadPh = rLead + pIdx * 0.002;
-            const leadPts = [leadTipPt(thStart, -cwLead), ringPt(thStart, -cwLead, rLeadPh)];
-            arcPts(leadPts, rLeadPh, thStart, thPin, zBus);
+            const zLead = zBus - 0.0036;
+            const leadPts = [leadTipPt(thStart, -cwLead), axialPt(thStart, -cwLead, zLead), ringPtZ(thStart, -cwLead, rLeadPh, zLead)];
+            arcPts(leadPts, rLeadPh, thStart, thPin, zLead);
             leadPts.push(wirePt(0.0275, thPin, -0.016), wirePt(0.0335, thPin, -0.012));
-            wiringGroup.add(wireTube(leadPts, col, 0.00085, ph));
-            // 3) 星点线：末线圈的引线头 2 → 径向汇入中心公共星点
+            wiringGroup.add(wireTube(leadPts, col, 0.0006, ph));
+            // 3) 星点线：末线圈的引线头 2 → 本相层面径向汇入中心公共星点
             const thEnd = slotAngle(slots[slots.length - 1]);
             wiringGroup.add(wireTube([
                 leadTipPt(thEnd, cwLead),
-                ringPt(thEnd, cwLead, rBus),
-                wirePt(0.005, thEnd, zBus),
+                axialPt(thEnd, cwLead, zChain),
+                wirePt(0.005, thEnd, zChain),
+                wirePt(0.004, thEnd, zBus),
                 new THREE.Vector3(0, 0, zBus)
-            ], col, undefined, ph));
+            ], col, 0.0005, ph));
         });
 
         // 公共星点（Y 接法中点）
