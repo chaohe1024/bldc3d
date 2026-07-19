@@ -712,9 +712,12 @@
             return sp;
         }
 
-        // 接线端子排：机壳侧面黑色端子座 + A/B/C 三个铜端子（切向排列）
-        wiringGroup.add(createBox(0.016, 0.006, 0.012, 0x111827,
-            0.0315 * erX, 0.0315 * erY, -0.012, 0, 0, TERM_ANGLE + Math.PI / 2));
+        // 接线端子排：机壳侧面半透明端子座 + A/B/C 三个铜端子（切向排列）
+        const termBlock = createBox(0.016, 0.006, 0.012, 0x111827,
+            0.0315 * erX, 0.0315 * erY, -0.012, 0, 0, TERM_ANGLE + Math.PI / 2);
+        termBlock.material.transparent = true;
+        termBlock.material.opacity = 0.25;
+        wiringGroup.add(termBlock);
         ['A', 'B', 'C'].forEach((ph, j) => {
             const t = pinTang[j];
             const pin = createCylinder(0.0012, 0.0012, 0.005, phaseColors[ph],
@@ -806,7 +809,7 @@
         // 并在每个极对的空气隙段加了方向箭头，指向 N → S。
         function fluxPt(r, th, z) { return new THREE.Vector3(r * Math.cos(th), r * Math.sin(th), z); }
 
-        const FIELD_LAYERS = 4;
+        const FIELD_LAYERS = 6;
         const LINES_PER_POLE = 8;
         const FLUX_TUBE_R = 0.00008; // 0.08mm 半径，很细
         const FLUX_OPACITY = 0.42;   // 半透明、淡一些
@@ -826,7 +829,7 @@
                 const thS = thN + Math.PI / 14;
                 const thMid = thN + Math.PI / 28;
                 for (let layer = 0; layer < FIELD_LAYERS; layer++) {
-                    const z0 = (layer - 1) * 0.006;
+                    const z0 = -0.015 + layer * 0.006; // 6 层均匀分布在铁芯轴向范围内
                     for (let n = 0; n < LINES_PER_POLE; n++) {
                         const peakR = peakRange[0] + n * peakRange[1];
                         const retR = returnRange[0] + n * returnRange[1];
