@@ -657,10 +657,12 @@
                 wiringGroup.add(wireTube(pts, col, undefined, ph));
             }
             // 2) 相引出线：首线圈的引线头 1 → 引出线环 → 机壳侧面端子
+            //    三相各用不同半径的走弧环（间隔 2mm，三环并行），避免三线叠合看不清
             const thStart = slotAngle(slots[0]);
             const thPin = TERM_ANGLE + pinTang[pIdx] / 0.0355;
-            const leadPts = [leadTipPt(thStart, -cwLead), ringPt(thStart, -cwLead, rLead)];
-            arcPts(leadPts, rLead, thStart, thPin, zBus);
+            const rLeadPh = rLead + pIdx * 0.002;
+            const leadPts = [leadTipPt(thStart, -cwLead), ringPt(thStart, -cwLead, rLeadPh)];
+            arcPts(leadPts, rLeadPh, thStart, thPin, zBus);
             leadPts.push(wirePt(0.0275, thPin, -0.016), wirePt(0.0335, thPin, -0.012));
             wiringGroup.add(wireTube(leadPts, col, 0.00085, ph));
             // 3) 星点线：末线圈的引线头 2 → 径向汇入中心公共星点
