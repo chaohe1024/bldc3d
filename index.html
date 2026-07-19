@@ -205,6 +205,13 @@
                 </div>
             </div>
             <div class="control-group">
+                <label>绕组连接</label>
+                <div class="toggle-row">
+                    <input type="checkbox" id="xrayWindings">
+                    <span>透视模式</span>
+                </div>
+            </div>
+            <div class="control-group">
                 <label>操作</label>
                 <div style="display:flex;gap:0.5rem;">
                     <button id="playPauseBtn">暂停</button>
@@ -579,6 +586,105 @@
             coilList.push({ group: coil, phase, slot: i, highlight });
         }
 
+        // ===== 三相绕组连接线与接线端子 =====
+        // 连接方式（集中绕组典型 Y 接法）：每相 8 个线圈依次串联（相邻同相线圈
+        // 在定子底端沿环形总线走弧相连），三相首端分别引出到机壳侧面的 A/B/C
+        // 接线端子，三相末端汇入中心的公共星点
+        const wiringGroup = new THREE.Group();
+        motorGroup.add(wiringGroup);
+        const zCoilEnd = -(L_STACK + 0.004) / 2; // 线圈端部底面
+        const zBus = zCoilEnd - 0.0012;          // 连接总线所在平面
+        const rBus = R_STATOR_OUT - 0.002;       // 串联连接弧半径
+        const rLead = R_STATOR_OUT + 0.0005;     // 相引出线走弧半径（与串联弧错开）
+        const TERM_ANGLE = -Math.PI / 2;         // 接线端子朝向（-Y，默认视角前方）
+        const pinTang = [-0.0045, 0, 0.0045];    // 三个端子的切向间距
+        const erX = Math.cos(TERM_ANGLE), erY = Math.sin(TERM_ANGLE);
+
+        function wirePt(r, th, z) { return new THREE.Vector3(r * Math.cos(th), r * Math.sin(th), z); }
+        function wireTube(pts, colorHex, radius) {
+            const curve = new THREE.CatmullRomCurve3(pts);
+            const geo = new THREE.TubeGeometry(curve, Math.max(32, pts.length * 8), radius || 0.00075, 6);
+            return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colorHex }));
+        }
+        function arcPts(pts, r, th0, th1, z) { // 沿短弧方向把 th0→th1 的采样点追加到 pts
+            let d = th1 - th0;
+            while (d > Math.PI) d -= Math.PI * 2;
+            while (d < -Math.PI) d += Math.PI * 2;
+            const n = Math.max(3, Math.ceil(Math.abs(d) / (Math.PI / 18)));
+            for (let k = 1; k <= n; k++) pts.push(wirePt(r, th0 + (d * k) / n, z));
+        }
+
+        ['A', 'B', 'C'].forEach((ph, pIdx) => {
+            const col = phaseColors[ph];
+            const slots = [];
+            for (let s = pIdx; s < MOTOR.statorSlots; s += 3) slots.push(s);
+            const slotAngle = (s) => (s / MOTOR.statorSlots) * Math.PI * 2;
+            // 1) 同相线圈串联：相邻线圈底端沿总线走弧相连
+            for (let k = 0; k + 1 < slots.length; k++) {
+                const th0 = slotAngle(slots[k]), th1 = slotAngle(slots[k + 1]);
+                const pts = [wirePt(rStem, th0, zCoilEnd), wirePt(rBus, th0, zBus)];
+                arcPts(pts, rBus, th0, th1, zBus);
+                pts.push(wirePt(rStem, th1, zCoilEnd));
+                wiringGroup.add(wireTube(pts, col));
+            }
+            // 2) 相引出线：首线圈底端 → 引出线环 → 机壳侧面端子
+            const thStart = slotAngle(slots[0]);
+            const thPin = TERM_ANGLE + pinTang[pIdx] / 0.0355;
+            const leadPts = [wirePt(rStem, thStart, zCoilEnd), wirePt(rLead, thStart, zBus)];
+            arcPts(leadPts, rLead, thStart, thPin, zBus);
+            leadPts.push(wirePt(0.0275, thPin, -0.016), wirePt(0.0335, thPin, -0.012));
+            wiringGroup.add(wireTube(leadPts, col, 0.00085));
+            // 3) 星点线：末线圈底端 → 径向汇入中心公共星点
+            const thEnd = slotAngle(slots[slots.length - 1]);
+            wiringGroup.add(wireTube([
+                wirePt(rStem, thEnd, zCoilEnd),
+                wirePt(rBus, thEnd, zBus),
+                wirePt(0.005, thEnd, zBus),
+                new THREE.Vector3(0, 0, zBus)
+            ], col));
+        });
+
+        // 公共星点（Y 接法中点）
+        const starPoint = new THREE.Mesh(
+            new THREE.SphereGeometry(0.0016, 16, 16),
+            new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.8, roughness: 0.3 })
+        );
+        starPoint.position.set(0, 0, zBus);
+        wiringGroup.add(starPoint);
+
+        // 文字标签（始终面向相机，不被遮挡）
+        function makeLabel(text, cssColor) {
+            const c = document.createElement('canvas');
+            c.width = 256; c.height = 128;
+            const g = c.getContext('2d');
+            g.font = 'bold 80px sans-serif';
+            g.textAlign = 'center'; g.textBaseline = 'middle';
+            g.fillStyle = cssColor;
+            g.fillText(text, 128, 64);
+            const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: new THREE.CanvasTexture(c), depthTest: false, transparent: true
+            }));
+            sp.scale.set(0.008, 0.004, 1);
+            sp.renderOrder = 1000;
+            return sp;
+        }
+
+        // 接线端子排：机壳侧面黑色端子座 + A/B/C 三个铜端子（切向排列）
+        wiringGroup.add(createBox(0.016, 0.006, 0.012, 0x111827,
+            0.0315 * erX, 0.0315 * erY, -0.012, 0, 0, TERM_ANGLE + Math.PI / 2));
+        ['A', 'B', 'C'].forEach((ph, j) => {
+            const t = pinTang[j];
+            const pin = createCylinder(0.0012, 0.0012, 0.005, 0xd4af37,
+                0.0355 * erX - t * erY, 0.0355 * erY + t * erX, -0.012, 0, 0, TERM_ANGLE - Math.PI / 2);
+            wiringGroup.add(pin);
+            const lbl = makeLabel(ph, '#e2e8f0');
+            lbl.position.set(0.0385 * erX - t * erY, 0.0385 * erY + t * erX, -0.0065);
+            wiringGroup.add(lbl);
+        });
+        const starLbl = makeLabel('星点', '#d4af37');
+        starLbl.position.set(0.010, 0.006, zBus - 0.004);
+        wiringGroup.add(starLbl);
+
         // ===== 转子（外转子：环形转子轭 + 内壁磁钢 + 端盖）=====
         const rotorGroup = new THREE.Group();
         motorGroup.add(rotorGroup);
@@ -634,6 +740,21 @@
         // 电机轴表面的纵向黄色标记条（随转子转动，显示电机轴转速；只留机壳与太阳轮之间的外露段）
         const shaftMark = createBox(0.0008, 0.0016, 0.01, 0xfbbf24, R_SHAFT + 0.0001, 0, 0.026, 0, 0, 0);
         rotorGroup.add(shaftMark);
+
+        // ===== 绕组透视：淡出遮挡件（机壳/定子铁芯/齿/磁钢/转子轭），露出绕组与连接线 =====
+        const xrayTargets = [statorOuter, statorYoke, rotorYoke, rotorCap];
+        magnets.forEach((m) => xrayTargets.push(m.mesh));
+        statorCore.children.forEach((ch) => { if (ch.userData.coilIndex === undefined) xrayTargets.push(ch); });
+        xrayTargets.forEach((m) => {
+            m.userData._xray = { o: m.material.opacity, t: m.material.transparent, dw: m.material.depthWrite };
+        });
+        function setXray(on) {
+            xrayTargets.forEach((m) => {
+                const mat = m.material, saved = m.userData._xray;
+                if (on) { mat.transparent = true; mat.opacity = 0.08; mat.depthWrite = false; }
+                else { mat.opacity = saved.o; mat.transparent = saved.t; mat.depthWrite = saved.dw; }
+            });
+        }
 
         // ===== 旋转磁场可视化 =====
         // 气隙磁密按正弦分布 B(θ) = B0·cos(p·θ − θe)，随电角度旋转；
@@ -932,6 +1053,7 @@
             ctx.fillText(`幅值 ${Math.abs(Iamp).toFixed(2)} A · 横轴：电角度（2 周期）`, 6, 12);
         }
         showField.addEventListener('change', (e) => { state.showField = e.target.checked; fieldGroup.visible = state.showField; });
+        document.getElementById('xrayWindings').addEventListener('change', (e) => setXray(e.target.checked));
         showCurrent.addEventListener('change', (e) => { state.showCurrent = e.target.checked; });
         playPauseBtn.addEventListener('click', () => {
             state.running = !state.running;
