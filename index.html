@@ -929,14 +929,17 @@
         planetCarrier.add(flange);
 
         // 输出指针臂（随行星架/输出轴转动，直观显示减速后的转速与转向）
-        const arm = createBox(0.032, 0.0025, 0.0015, 0x34d399, 0.012, 0, 0.019, 0, 0, 0);
+        // 长度约为原来的一半，末端用箭头代替圆球，指向更明确
+        const armLen = 0.012;
+        const arm = createBox(armLen, 0.003, 0.0018, 0x34d399, armLen / 2, 0, 0.019, 0, 0, 0);
         planetCarrier.add(arm);
-        const armTip = new THREE.Mesh(
-            new THREE.SphereGeometry(0.0022, 12, 12),
-            new THREE.MeshStandardMaterial({ color: 0xf87171, emissive: 0xf87171, emissiveIntensity: 0.5 })
+        const arrowHead = new THREE.Mesh(
+            new THREE.ConeGeometry(0.003, 0.006, 12),
+            new THREE.MeshStandardMaterial({ color: 0x34d399, emissive: 0x34d399, emissiveIntensity: 0.3 })
         );
-        armTip.position.set(0.028, 0, 0.019);
-        planetCarrier.add(armTip);
+        arrowHead.rotation.z = -Math.PI / 2; // 圆锥默认 Y 轴，旋转后指向 +X
+        arrowHead.position.set(armLen + 0.003, 0, 0.019);
+        planetCarrier.add(arrowHead);
 
         // ===== 分解视图控制 =====
         let explodedGroups = [
