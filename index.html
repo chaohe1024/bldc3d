@@ -539,23 +539,31 @@
             const shoe = createBox(0.0042, 0.0012, L_STACK, 0x9ca3af, rShoe * ca, rShoe * sa, 0, 0, 0, angle + Math.PI / 2);
             statorCore.add(stem);
             statorCore.add(shoe);
-            // 集中绕组：套在齿身上的矩形线圈（两根轴向铜条 + 两端横连）
-            const coil = new THREE.Group();
-            const cw = 0.0012;                 // 线圈边到齿侧面的切向距离
-            const barR = 0.0009;               // 铜条半径
+            // 集中绕组：单根铜管沿“胶囊形”闭合路径扫掠而成，四个转弯处为平滑半圆弧，
+            // 模拟真实铜线绕过齿身两端时的 90° 弯折（不再是生硬相接的直圆柱）
+            const cw = 0.0012;                 // 线圈边到齿侧面的切向距离（兼作端部弯折半径）
+            const barR = 0.0009;               // 铜线半径
             const sideLen = L_STACK + 0.004;   // 端部绕组伸出铁芯两端
-            [-cw, cw].forEach((off) => {
-                const bar = new THREE.Mesh(new THREE.CylinderGeometry(barR, barR, sideLen, 8), coilMats[phase]);
-                bar.rotation.x = Math.PI / 2;
-                bar.position.set(rStem * ca - off * sa, rStem * sa + off * ca, 0);
-                coil.add(bar);
-            });
-            [-1, 1].forEach((s) => {
-                const end = new THREE.Mesh(new THREE.CylinderGeometry(barR, barR, cw * 2, 8), coilMats[phase]);
-                end.rotation.z = angle;
-                end.position.set(rStem * ca, rStem * sa, s * sideLen / 2);
-                coil.add(end);
-            });
+            const halfL = sideLen / 2 - cw;    // 直线段半长
+            const tanX = -sa, tanY = ca;       // 该槽位的切向单位向量
+            const coilPts = [];
+            const N_LINE = 6, N_ARC = 24;
+            // 路径 = 两侧直线 + 两端半圆弧，位于齿身中径处的切向-轴向平面
+            for (let k = 0; k <= N_LINE; k++) coilPts.push([cw, -halfL + (2 * halfL * k) / N_LINE]);
+            for (let k = 1; k <= N_ARC; k++) {
+                const t = (Math.PI * k) / N_ARC;
+                coilPts.push([cw * Math.cos(t), halfL + cw * Math.sin(t)]);
+            }
+            for (let k = 1; k <= N_LINE; k++) coilPts.push([-cw, halfL - (2 * halfL * k) / N_LINE]);
+            for (let k = 1; k < N_ARC; k++) {  // 末点与起点重合，避免闭合曲线出现重复点
+                const t = Math.PI + (Math.PI * k) / N_ARC;
+                coilPts.push([cw * Math.cos(t), -halfL + cw * Math.sin(t)]);
+            }
+            const coilCurve = new THREE.CatmullRomCurve3(
+                coilPts.map(([u, v]) => new THREE.Vector3(rStem * ca + u * tanX, rStem * sa + u * tanY, v)),
+                true
+            );
+            const coil = new THREE.Mesh(new THREE.TubeGeometry(coilCurve, 160, barR, 10, true), coilMats[phase]);
             coils[phase].push(coil);
             statorCore.add(coil);
             // 点选用：记录槽位/相位，并附带一个选中高亮框（默认隐藏）
