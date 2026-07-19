@@ -799,31 +799,35 @@
         }
 
         // ===== 旋转磁场可视化 =====
-        // 用气隙磁密 B(θ) = B0·cos(p·θ − θe) 的花瓣形波形环表示旋转磁场：
-        // 环的半径随磁密正负在气隙中心内外起伏，形成 14 片花瓣并随电角度旋转
+        // 用 3D 磁力线表示转子磁场：每条线从一个 N 极表面出发，跨越气隙到达相邻 S 极，
+        // 再经转子轭内部返回 N 极，形成闭合回路；多层轴向分布，整体随转子一起旋转
         const fieldGroup = new THREE.Group();
-        motorGroup.add(fieldGroup);
-        const R_GAP = (R_STATOR_OUT + R_MAGNET_IN) / 2; // 气隙中心半径
-        const B_SCALE = 0.0035;                         // 花瓣径向幅度
-        const FIELD_SEGMENTS = 280;
-        const fieldMat = new THREE.MeshStandardMaterial({
-            color: 0xffdd00, emissive: 0xffdd00, emissiveIntensity: 0.6,
-            transparent: true, opacity: 0.9, depthTest: false
+        rotorGroup.add(fieldGroup); // 绑定到转子，与磁钢同步转动
+        const R_FIELD_PEAK = R_STATOR_OUT + 0.004; // 磁力线最高点（稍超出定子齿顶）
+        const R_RETURN = R_MAGNET_OUT - 0.001;     // 返回路径在转子轭内
+        const FLUX_SEGMENTS = 80;
+        const fluxMat = new THREE.MeshStandardMaterial({
+            color: 0xffdd00, emissive: 0xffdd00, emissiveIntensity: 0.5,
+            transparent: true, opacity: 0.85, depthTest: false
         });
-        let fieldMesh = null;
-        function updateField(thetaE) {
-            if (fieldMesh) { fieldMesh.geometry.dispose(); fieldGroup.remove(fieldMesh); }
-            const pts = [];
-            for (let i = 0; i <= FIELD_SEGMENTS; i++) {
-                const t = (i / FIELD_SEGMENTS) * Math.PI * 2;
-                const B = Math.cos(MOTOR.polePairs * t - thetaE);
-                const r = R_GAP + B * B_SCALE;
-                pts.push(new THREE.Vector3(r * Math.cos(t), r * Math.sin(t), 0));
-            }
-            const curve = new THREE.CatmullRomCurve3(pts, true);
-            fieldMesh = new THREE.Mesh(new THREE.TubeGeometry(curve, FIELD_SEGMENTS, 0.0007, 10, true), fieldMat);
-            fieldMesh.renderOrder = 999;
-            fieldGroup.add(fieldMesh);
+        function fluxPt(r, th, z) { return new THREE.Vector3(r * Math.cos(th), r * Math.sin(th), z); }
+        for (let i = 0; i < MOTOR.polePairs; i++) { // 14 对极 → 14 条 N-S 闭合回路
+            const thN = i * Math.PI / 7;            // N 极中心角
+            const thS = thN + Math.PI / 14;         // 相邻 S 极中心角
+            const thMid = thN + Math.PI / 28;       // 气隙中点角
+            [-0.008, 0, 0.008].forEach((z0) => {
+                const pts = [
+                    fluxPt(R_MAGNET_OUT + 0.0005, thN, z0),
+                    fluxPt(R_FIELD_PEAK, thMid, z0 + 0.004),
+                    fluxPt(R_MAGNET_OUT + 0.0005, thS, z0),
+                    fluxPt(R_RETURN, thS, z0),
+                    fluxPt(R_RETURN, thN, z0)
+                ];
+                const curve = new THREE.CatmullRomCurve3(pts, true);
+                const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, FLUX_SEGMENTS, 0.0005, 6, true), fluxMat);
+                tube.renderOrder = 999;
+                fieldGroup.add(tube);
+            });
         }
 
         // ===== 行星减速器 =====
@@ -1207,8 +1211,8 @@
             // 更新转子（外转子：磁钢随转子轭同步旋转）
             rotorGroup.rotation.z = thetaM;
 
-            // 旋转磁场：更新花瓣形波形环（气隙磁密 B(θ)=cos(p·θ−θe) 随电角度旋转）
-            updateField(thetaE);
+            // 旋转磁场：fieldGroup 已绑定到转子，随转子同步转动
+            // （磁力线代表转子永磁体的磁场，与磁钢一起旋转）
 
             // 三相电流 → 对应相绕组发光（幅值随转速百分比变化）
             const drive = state.showCurrent ? state.speedPercent / 100 : 0;
