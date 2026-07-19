@@ -514,7 +514,7 @@
         statorYokeShape.holes.push(statorYokeHole);
         const statorYoke = new THREE.Mesh(
             new THREE.ExtrudeGeometry(statorYokeShape, { depth: L_STACK, bevelEnabled: false, curveSegments: 48 }),
-            new THREE.MeshStandardMaterial({ color: 0x6b7280, transparent: true, opacity: 0.25 })
+            new THREE.MeshStandardMaterial({ color: 0x6b7280, transparent: true, opacity: 0.5 })
         );
         statorYoke.position.z = -L_STACK / 2;
         motorGroup.add(statorYoke);
@@ -543,9 +543,9 @@
             const ca = Math.cos(angle), sa = Math.sin(angle);
             // 齿身 + 齿靴（切向加宽，形成槽口）
             const stem = createBox(0.0022, toothStemH, L_STACK, 0x9ca3af, rStem * ca, rStem * sa, 0, 0, 0, angle + Math.PI / 2);
-            stem.material.transparent = true; stem.material.opacity = 0.25;
+            stem.material.transparent = true; stem.material.opacity = 0.5;
             const shoe = createBox(0.0042, 0.0012, L_STACK, 0x9ca3af, rShoe * ca, rShoe * sa, 0, 0, 0, angle + Math.PI / 2);
-            shoe.material.transparent = true; shoe.material.opacity = 0.25;
+            shoe.material.transparent = true; shoe.material.opacity = 0.5;
             statorCore.add(stem);
             statorCore.add(shoe);
             // 集中绕组：单匝“U 形”（发卡式）线圈——铜管从一个引线头出发，沿齿身一侧
