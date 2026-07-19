@@ -223,7 +223,7 @@
         <div class="main-layout">
             <div class="canvas-wrap">
                 <canvas id="canvas"></canvas>
-                <div class="overlay-hint">拖拽旋转 · 滚轮缩放 · 右键平移</div>
+                <div class="overlay-hint">拖拽旋转 · 滚轮缩放 · 右键平移 · 双击导线单独显示</div>
                 <div class="legend">
                     <span><span class="dot" style="background:#dc2626"></span> A 相绕组</span>
                     <span><span class="dot" style="background:#ca8a04"></span> B 相绕组</span>
@@ -604,7 +604,9 @@
         function wireTube(pts, colorHex, radius) {
             const curve = new THREE.CatmullRomCurve3(pts);
             const geo = new THREE.TubeGeometry(curve, Math.max(32, pts.length * 8), radius || 0.00075, 6);
-            return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colorHex }));
+            const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colorHex }));
+            mesh.userData.isWire = true; // 标记为“线”，供双击单独显示
+            return mesh;
         }
         function arcPts(pts, r, th0, th1, z) { // 沿短弧方向把 th0→th1 的采样点追加到 pts
             let d = th1 - th0;
@@ -1013,6 +1015,47 @@
                 while (o && o.userData.coilIndex === undefined) o = o.parent;
                 if (o && o.userData.coilIndex !== undefined) { toggleCoil(o.userData.coilIndex); break; }
             }
+        });
+
+        // ===== 双击某根线（线圈或连接线）：其余所有线变为幽灵透明，单独看清这根线的走线 =====
+        // 实现方式：非目标线统一换成共享的幽灵材质（不改动各自原材质，恢复时换回来），
+        // 这样不受同相线圈共享材质的影响；双击空白处或再次双击同一根线恢复原状
+        const wireMeshes = [...coilList.map((c) => c.group), ...wiringGroup.children.filter((o) => o.userData.isWire)];
+        const ghostMat = new THREE.MeshBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.06, depthWrite: false });
+        let isolatedMesh = null;
+        function clearIsolation() {
+            if (!isolatedMesh) return;
+            wireMeshes.forEach((m) => {
+                if (m.userData._ownMat) { m.material = m.userData._ownMat; delete m.userData._ownMat; }
+            });
+            isolatedMesh = null;
+        }
+        function isolateWire(mesh) {
+            if (isolatedMesh === mesh) { clearIsolation(); return; }
+            clearIsolation();
+            isolatedMesh = mesh;
+            wireMeshes.forEach((m) => {
+                if (m === mesh) return;
+                if (!m.userData._ownMat) m.userData._ownMat = m.material;
+                m.material = ghostMat;
+            });
+        }
+        canvas.addEventListener('dblclick', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const ndc = new THREE.Vector2(
+                ((e.clientX - rect.left) / rect.width) * 2 - 1,
+                -((e.clientY - rect.top) / rect.height) * 2 + 1
+            );
+            raycaster.setFromCamera(ndc, camera);
+            const hits = raycaster.intersectObjects([statorCore, wiringGroup], true);
+            for (const h of hits) {
+                let o = h.object;
+                while (o && o.userData.coilIndex === undefined && !o.userData.isWire) o = o.parent;
+                if (!o) continue;
+                isolateWire(o.userData.coilIndex !== undefined ? coilList[o.userData.coilIndex].group : o);
+                return;
+            }
+            clearIsolation(); // 双击空白处恢复
         });
 
         // 波形图：横轴为电角度（2 个周期），纵轴归一化，叠加显示选中绕组
