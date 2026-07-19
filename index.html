@@ -621,6 +621,11 @@
         function leadTipPt(th, u) {
             return new THREE.Vector3(rStem * Math.cos(th) - u * Math.sin(th), rStem * Math.sin(th) + u * Math.cos(th), zBus);
         }
+        // 总线上的接入点：保持与引线头相同的切向偏移 u——同一线圈的两个引线头
+        // 分别接总线上两个不同的点，否则两引线会在总线上汇于一点，把线圈两端短接
+        function ringPt(th, u, r) {
+            return new THREE.Vector3(r * Math.cos(th) - u * Math.sin(th), r * Math.sin(th) + u * Math.cos(th), zBus);
+        }
 
         ['A', 'B', 'C'].forEach((ph, pIdx) => {
             const col = phaseColors[ph];
@@ -630,15 +635,15 @@
             // 1) 同相线圈串联：前一个线圈的引线头 2 → 总线走弧 → 后一个线圈的引线头 1
             for (let k = 0; k + 1 < slots.length; k++) {
                 const th0 = slotAngle(slots[k]), th1 = slotAngle(slots[k + 1]);
-                const pts = [leadTipPt(th0, cwLead), wirePt(rBus, th0, zBus)];
+                const pts = [leadTipPt(th0, cwLead), ringPt(th0, cwLead, rBus)];
                 arcPts(pts, rBus, th0, th1, zBus);
-                pts.push(leadTipPt(th1, -cwLead));
+                pts.push(ringPt(th1, -cwLead, rBus), leadTipPt(th1, -cwLead));
                 wiringGroup.add(wireTube(pts, col, undefined, ph));
             }
             // 2) 相引出线：首线圈的引线头 1 → 引出线环 → 机壳侧面端子
             const thStart = slotAngle(slots[0]);
             const thPin = TERM_ANGLE + pinTang[pIdx] / 0.0355;
-            const leadPts = [leadTipPt(thStart, -cwLead), wirePt(rLead, thStart, zBus)];
+            const leadPts = [leadTipPt(thStart, -cwLead), ringPt(thStart, -cwLead, rLead)];
             arcPts(leadPts, rLead, thStart, thPin, zBus);
             leadPts.push(wirePt(0.0275, thPin, -0.016), wirePt(0.0335, thPin, -0.012));
             wiringGroup.add(wireTube(leadPts, col, 0.00085, ph));
@@ -646,7 +651,7 @@
             const thEnd = slotAngle(slots[slots.length - 1]);
             wiringGroup.add(wireTube([
                 leadTipPt(thEnd, cwLead),
-                wirePt(rBus, thEnd, zBus),
+                ringPt(thEnd, cwLead, rBus),
                 wirePt(0.005, thEnd, zBus),
                 new THREE.Vector3(0, 0, zBus)
             ], col, undefined, ph));
