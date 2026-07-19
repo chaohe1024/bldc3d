@@ -136,6 +136,7 @@
             font-weight: 700;
             color: #fff;
         }
+        .phase-box span { font-family: "SFMono-Regular", Consolas, monospace; font-variant-numeric: tabular-nums; }
         .phase-a { background: #dc2626; }
         .phase-b { background: #ca8a04; }
         .phase-c { background: #2563eb; }
@@ -1224,7 +1225,7 @@
                     px === 0 ? ctx.moveTo(px, y) : ctx.lineTo(px, y);
                 }
                 ctx.stroke();
-                chipSpans[idx].textContent = (Iamp * Math.sin(thetaE + shift)).toFixed(2) + ' A';
+                chipSpans[idx].textContent = fmtCurrent(Iamp * Math.sin(thetaE + shift)) + ' A';
             });
             ctx.fillStyle = '#64748b';
             ctx.font = '10px monospace';
@@ -1252,6 +1253,12 @@
         let lastTime = performance.now();
         let accumulator = 0;
 
+        // 固定宽度电流显示：始终带符号，避免正负号导致文字左右晃动
+        function fmtCurrent(v) {
+            const x = Math.abs(v) < 0.005 ? 0 : v;
+            return (x >= 0 ? '+' : '') + x.toFixed(2);
+        }
+
         function updateInfo() {
             const elecAngle = (state.mechAngle * MOTOR.polePairs) % (Math.PI * 2);
             const rotorRpm = (state.speedPercent / 100) * MOTOR.ratedSpeed * state.direction;
@@ -1265,9 +1272,9 @@
             // 三相电流（幅值与速度成正比）
             const I = (state.speedPercent / 100) * MOTOR.maxPhaseCurrent * state.direction;
             const theta = state.mechAngle * MOTOR.polePairs;
-            document.getElementById('curA').textContent = (I * Math.sin(theta)).toFixed(2);
-            document.getElementById('curB').textContent = (I * Math.sin(theta - 2 * Math.PI / 3)).toFixed(2);
-            document.getElementById('curC').textContent = (I * Math.sin(theta - 4 * Math.PI / 3)).toFixed(2);
+            document.getElementById('curA').textContent = fmtCurrent(I * Math.sin(theta));
+            document.getElementById('curB').textContent = fmtCurrent(I * Math.sin(theta - 2 * Math.PI / 3));
+            document.getElementById('curC').textContent = fmtCurrent(I * Math.sin(theta - 4 * Math.PI / 3));
         }
 
         function animate(now) {
