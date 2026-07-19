@@ -848,7 +848,7 @@
                         const pArrow = fluxPt(peakR, thMid, z0 + 0.002);
                         const pTarget = fluxPt(Ssurf + n * 0.00004, thS, z0);
                         const dir = new THREE.Vector3().subVectors(pTarget, pArrow).normalize();
-                        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.00018, 0.00045, 8), arrowMat);
+                        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.00008, 0.00035, 8), arrowMat);
                         arrow.position.copy(pArrow);
                         const yAxis = new THREE.Vector3(0, 1, 0);
                         arrow.quaternion.setFromUnitVectors(yAxis, dir);
