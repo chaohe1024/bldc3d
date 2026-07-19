@@ -812,17 +812,17 @@
         const FIELD_LAYERS = 6;
         const LINES_PER_POLE = 8;
         const FLUX_TUBE_R = 0.00008; // 0.08mm 半径，很细
-        const FLUX_OPACITY = 0.42;   // 半透明、淡一些
+        const FLUX_OPACITY = 0.21;   // 再淡 50%
 
         function makeFluxField(targetGroup, cfg) {
             const { color, phaseOffset, Nsurf, Ssurf, peakRange, returnRange, arrowColor } = cfg;
             const mat = new THREE.MeshStandardMaterial({
-                color, emissive: color, emissiveIntensity: 0.32,
+                color, emissive: color, emissiveIntensity: 0.16,
                 transparent: true, opacity: FLUX_OPACITY, depthTest: false
             });
             const arrowMat = new THREE.MeshStandardMaterial({
-                color: arrowColor || color, emissive: arrowColor || color, emissiveIntensity: 0.55,
-                transparent: true, opacity: FLUX_OPACITY + 0.1, depthTest: false
+                color: arrowColor || color, emissive: arrowColor || color, emissiveIntensity: 0.28,
+                transparent: true, opacity: FLUX_OPACITY + 0.05, depthTest: false
             });
             for (let i = 0; i < MOTOR.polePairs; i++) {
                 const thN = i * Math.PI / 7 + (phaseOffset || 0);
