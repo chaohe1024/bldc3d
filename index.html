@@ -546,31 +546,32 @@
             const shoe = createBox(0.0042, 0.0012, L_STACK, 0x9ca3af, rShoe * ca, rShoe * sa, 0, 0, 0, angle + Math.PI / 2);
             statorCore.add(stem);
             statorCore.add(shoe);
-            // 集中绕组：单根铜管沿“胶囊形”闭合路径扫掠而成，四个转弯处为平滑半圆弧，
-            // 模拟真实铜线绕过齿身两端时的 90° 弯折（不再是生硬相接的直圆柱）
-            const cw = 0.0012;                 // 线圈边到齿侧面的切向距离（兼作端部弯折半径）
+            // 集中绕组：单匝“U 形”（发卡式）线圈——铜管从一个引线头出发，沿齿身一侧
+            // 上行、顶部半圆弯折、再沿另一侧下行，到另一个引线头结束；两个引线头留在
+            // 底部与相内串联线相接，电流从一相端子流入、穿过每个线圈形成回路，
+            // 而不是首尾相连的 O 形死圈（死圈没有端子，无法通电流）
+            const cw = 0.0012;                 // 线圈边到齿侧面的切向距离（兼作顶部弯折半径）
             const barR = 0.0009;               // 铜线半径
             const sideLen = L_STACK + 0.004;   // 端部绕组伸出铁芯两端
             const halfL = sideLen / 2 - cw;    // 直线段半长
+            const zLeadTip = -(halfL + 0.0024); // 引线头底端（与底部连接总线同高 zBus）
             const tanX = -sa, tanY = ca;       // 该槽位的切向单位向量
             const coilPts = [];
-            const N_LINE = 6, N_ARC = 24;
-            // 路径 = 两侧直线 + 两端半圆弧，位于齿身中径处的切向-轴向平面
-            for (let k = 0; k <= N_LINE; k++) coilPts.push([cw, -halfL + (2 * halfL * k) / N_LINE]);
+            const N_LINE = 8, N_ARC = 24;
+            // 引线头 1 → 沿齿身一侧上行
+            for (let k = 0; k <= N_LINE; k++) coilPts.push([-cw, zLeadTip + ((halfL - zLeadTip) * k) / N_LINE]);
+            // 顶部半圆弯折（一侧 → 另一侧）
             for (let k = 1; k <= N_ARC; k++) {
-                const t = (Math.PI * k) / N_ARC;
+                const t = Math.PI + (Math.PI * k) / N_ARC;
                 coilPts.push([cw * Math.cos(t), halfL + cw * Math.sin(t)]);
             }
-            for (let k = 1; k <= N_LINE; k++) coilPts.push([-cw, halfL - (2 * halfL * k) / N_LINE]);
-            for (let k = 1; k < N_ARC; k++) {  // 末点与起点重合，避免闭合曲线出现重复点
-                const t = Math.PI + (Math.PI * k) / N_ARC;
-                coilPts.push([cw * Math.cos(t), -halfL + cw * Math.sin(t)]);
-            }
+            // 另一侧下行 → 引线头 2（路径开口，不闭合）
+            for (let k = 1; k <= N_LINE; k++) coilPts.push([cw, halfL - ((halfL - zLeadTip) * k) / N_LINE]);
             const coilCurve = new THREE.CatmullRomCurve3(
                 coilPts.map(([u, v]) => new THREE.Vector3(rStem * ca + u * tanX, rStem * sa + u * tanY, v)),
-                true
+                false
             );
-            const coil = new THREE.Mesh(new THREE.TubeGeometry(coilCurve, 160, barR, 10, true), coilMats[phase]);
+            const coil = new THREE.Mesh(new THREE.TubeGeometry(coilCurve, 120, barR, 10, false), coilMats[phase]);
             coils[phase].push(coil);
             statorCore.add(coil);
             // 点选用：记录槽位/相位，并附带一个选中高亮框（默认隐藏）
@@ -615,31 +616,36 @@
             const n = Math.max(3, Math.ceil(Math.abs(d) / (Math.PI / 18)));
             for (let k = 1; k <= n; k++) pts.push(wirePt(r, th0 + (d * k) / n, z));
         }
+        // 线圈引线头位置：齿身中径 rStem、切向偏移 u（±cw），底端与总线同高
+        const cwLead = 0.0012;
+        function leadTipPt(th, u) {
+            return new THREE.Vector3(rStem * Math.cos(th) - u * Math.sin(th), rStem * Math.sin(th) + u * Math.cos(th), zBus);
+        }
 
         ['A', 'B', 'C'].forEach((ph, pIdx) => {
             const col = phaseColors[ph];
             const slots = [];
             for (let s = pIdx; s < MOTOR.statorSlots; s += 3) slots.push(s);
             const slotAngle = (s) => (s / MOTOR.statorSlots) * Math.PI * 2;
-            // 1) 同相线圈串联：相邻线圈底端沿总线走弧相连
+            // 1) 同相线圈串联：前一个线圈的引线头 2 → 总线走弧 → 后一个线圈的引线头 1
             for (let k = 0; k + 1 < slots.length; k++) {
                 const th0 = slotAngle(slots[k]), th1 = slotAngle(slots[k + 1]);
-                const pts = [wirePt(rStem, th0, zCoilEnd), wirePt(rBus, th0, zBus)];
+                const pts = [leadTipPt(th0, cwLead), wirePt(rBus, th0, zBus)];
                 arcPts(pts, rBus, th0, th1, zBus);
-                pts.push(wirePt(rStem, th1, zCoilEnd));
+                pts.push(leadTipPt(th1, -cwLead));
                 wiringGroup.add(wireTube(pts, col, undefined, ph));
             }
-            // 2) 相引出线：首线圈底端 → 引出线环 → 机壳侧面端子
+            // 2) 相引出线：首线圈的引线头 1 → 引出线环 → 机壳侧面端子
             const thStart = slotAngle(slots[0]);
             const thPin = TERM_ANGLE + pinTang[pIdx] / 0.0355;
-            const leadPts = [wirePt(rStem, thStart, zCoilEnd), wirePt(rLead, thStart, zBus)];
+            const leadPts = [leadTipPt(thStart, -cwLead), wirePt(rLead, thStart, zBus)];
             arcPts(leadPts, rLead, thStart, thPin, zBus);
             leadPts.push(wirePt(0.0275, thPin, -0.016), wirePt(0.0335, thPin, -0.012));
             wiringGroup.add(wireTube(leadPts, col, 0.00085, ph));
-            // 3) 星点线：末线圈底端 → 径向汇入中心公共星点
+            // 3) 星点线：末线圈的引线头 2 → 径向汇入中心公共星点
             const thEnd = slotAngle(slots[slots.length - 1]);
             wiringGroup.add(wireTube([
-                wirePt(rStem, thEnd, zCoilEnd),
+                leadTipPt(thEnd, cwLead),
                 wirePt(rBus, thEnd, zBus),
                 wirePt(0.005, thEnd, zBus),
                 new THREE.Vector3(0, 0, zBus)
@@ -676,10 +682,10 @@
             0.0315 * erX, 0.0315 * erY, -0.012, 0, 0, TERM_ANGLE + Math.PI / 2));
         ['A', 'B', 'C'].forEach((ph, j) => {
             const t = pinTang[j];
-            const pin = createCylinder(0.0012, 0.0012, 0.005, 0xd4af37,
+            const pin = createCylinder(0.0012, 0.0012, 0.005, phaseColors[ph],
                 0.0355 * erX - t * erY, 0.0355 * erY + t * erX, -0.012, 0, 0, TERM_ANGLE - Math.PI / 2);
             wiringGroup.add(pin);
-            const lbl = makeLabel(ph, '#e2e8f0');
+            const lbl = makeLabel(ph, '#' + phaseColors[ph].toString(16).padStart(6, '0'));
             lbl.position.set(0.0385 * erX - t * erY, 0.0385 * erY + t * erX, -0.0065);
             wiringGroup.add(lbl);
         });
