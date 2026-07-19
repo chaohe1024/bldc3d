@@ -627,6 +627,22 @@
             return new THREE.Vector3(r * Math.cos(th) - u * Math.sin(th), r * Math.sin(th) + u * Math.cos(th), zBus);
         }
 
+        // 引线头与连接线之间的接头：线圈引线是竖直管口、连接线是水平管口，
+        // 两者只在一点相触、弯头开口，加同色小球填满 90° 弯头，保证电气连接连续可见
+        for (let s = 0; s < MOTOR.statorSlots; s++) {
+            const th = (s / MOTOR.statorSlots) * Math.PI * 2;
+            const phJ = ['A', 'B', 'C'][s % 3];
+            [cwLead, -cwLead].forEach((u) => {
+                const joint = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.0009, 10, 10),
+                    new THREE.MeshStandardMaterial({ color: phaseColors[phJ] })
+                );
+                joint.position.copy(leadTipPt(th, u));
+                joint.userData.isWire = phJ; // 随整相隔离一起隐藏/显示
+                wiringGroup.add(joint);
+            });
+        }
+
         ['A', 'B', 'C'].forEach((ph, pIdx) => {
             const col = phaseColors[ph];
             const slots = [];
