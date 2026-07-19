@@ -514,7 +514,7 @@
         statorYokeShape.holes.push(statorYokeHole);
         const statorYoke = new THREE.Mesh(
             new THREE.ExtrudeGeometry(statorYokeShape, { depth: L_STACK, bevelEnabled: false, curveSegments: 48 }),
-            new THREE.MeshStandardMaterial({ color: 0x6b7280 })
+            new THREE.MeshStandardMaterial({ color: 0x6b7280, transparent: true, opacity: 0.25 })
         );
         statorYoke.position.z = -L_STACK / 2;
         motorGroup.add(statorYoke);
@@ -543,7 +543,9 @@
             const ca = Math.cos(angle), sa = Math.sin(angle);
             // 齿身 + 齿靴（切向加宽，形成槽口）
             const stem = createBox(0.0022, toothStemH, L_STACK, 0x9ca3af, rStem * ca, rStem * sa, 0, 0, 0, angle + Math.PI / 2);
+            stem.material.transparent = true; stem.material.opacity = 0.25;
             const shoe = createBox(0.0042, 0.0012, L_STACK, 0x9ca3af, rShoe * ca, rShoe * sa, 0, 0, 0, angle + Math.PI / 2);
+            shoe.material.transparent = true; shoe.material.opacity = 0.25;
             statorCore.add(stem);
             statorCore.add(shoe);
             // 集中绕组：单匝“U 形”（发卡式）线圈——铜管从一个引线头出发，沿齿身一侧
@@ -775,8 +777,6 @@
 
         // 电机轴（动力输入端：把转子转矩传给太阳轮，轴端止于太阳轮内部）
         const motorShaft = createCylinder(R_SHAFT, R_SHAFT, 0.047, 0x94a3b8, 0, 0, 0.0135, Math.PI / 2);
-        motorShaft.material.transparent = true;
-        motorShaft.material.opacity = 0.25;
         rotorGroup.add(motorShaft);
         // 电机轴表面的纵向黄色标记条（随转子转动，显示电机轴转速；只留机壳与太阳轮之间的外露段）
         const shaftMark = createBox(0.0008, 0.0016, 0.01, 0xfbbf24, R_SHAFT + 0.0001, 0, 0.026, 0, 0, 0);
@@ -786,7 +786,6 @@
         const xrayTargets = [statorOuter, statorYoke, rotorYoke, rotorCap];
         magnets.forEach((m) => xrayTargets.push(m.mesh));
         statorCore.children.forEach((ch) => { if (ch.userData.coilIndex === undefined) xrayTargets.push(ch); });
-        xrayTargets.push(motorShaft); // 透视时轴也淡出，避免遮挡内部线圈
         xrayTargets.forEach((m) => {
             m.userData._xray = { o: m.material.opacity, t: m.material.transparent, dw: m.material.depthWrite };
         });
