@@ -814,8 +814,9 @@
 
         // ===== 旋转磁场可视化 =====
         // 三种模式：关闭 / 转子永磁磁场 / 定子旋转磁场 / 两者叠加（显示合成磁场，非两独立场同时显示）
-        // 磁力线做得很细（管径 0.16mm）、很密（每极对 8 根 × 4 层）、半透明；
-        // 并在每个极对的空气隙段加了方向箭头，指向 N → S。
+        // 磁力线做得很细（管径 0.16mm）、很密（每极对 8 根 × 6 层）、半透明；
+        // 所有磁力线都画在垂直于转轴（z 轴）的平面内：N → S 先径向穿过气隙，
+        // 再沿铁心/轭返回，形成闭合回路，并带方向箭头。
         function fluxPt(r, th, z) { return new THREE.Vector3(r * Math.cos(th), r * Math.sin(th), z); }
 
         const FIELD_LAYERS = 6;
@@ -824,7 +825,7 @@
         const FLUX_OPACITY = 0.21;   // 再淡 50%
 
         function makeFluxField(targetGroup, cfg) {
-            const { color, phaseOffset, Nsurf, Ssurf, peakRange, returnRange, arrowColor } = cfg;
+            const { color, phaseOffset, rPole, rGap, rBack, arrowColor } = cfg;
             const mat = new THREE.MeshStandardMaterial({
                 color, emissive: color, emissiveIntensity: 0.16,
                 transparent: true, opacity: FLUX_OPACITY, depthTest: false
@@ -833,29 +834,36 @@
                 color: arrowColor || color, emissive: arrowColor || color, emissiveIntensity: 0.28,
                 transparent: true, opacity: FLUX_OPACITY + 0.05, depthTest: false
             });
+            const pp = Math.PI / MOTOR.polePairs; // 相邻 N-S 极的机械角间距
+            const h = pp / 2;
             for (let i = 0; i < MOTOR.polePairs; i++) {
-                const thN = i * Math.PI / 7 + (phaseOffset || 0);
-                const thS = thN + Math.PI / 14;
-                const thMid = thN + Math.PI / 28;
+                const thN = i * 2 * pp + (phaseOffset || 0);
+                const thS = thN + pp;
+                const thMid = thN + h;
                 for (let layer = 0; layer < FIELD_LAYERS; layer++) {
                     const z0 = -0.015 + layer * 0.006; // 6 层均匀分布在铁芯轴向范围内
                     for (let n = 0; n < LINES_PER_POLE; n++) {
-                        const peakR = peakRange[0] + n * peakRange[1];
-                        const retR = returnRange[0] + n * returnRange[1];
+                        const t = LINES_PER_POLE > 1 ? n / (LINES_PER_POLE - 1) : 0.5;
+                        // 第 n 根线：从磁极表面到气隙深处逐步偏移
+                        const rCross = rPole + (rGap - rPole) * (0.15 + 0.85 * t);
+                        const rRet = rPole + (rBack - rPole) * (0.25 + 0.75 * t);
                         const pts = [
-                            fluxPt(Nsurf + n * 0.00004, thN, z0),
-                            fluxPt(peakR, thMid, z0 + 0.002),
-                            fluxPt(Ssurf + n * 0.00004, thS, z0),
-                            fluxPt(retR, thS, z0),
-                            fluxPt(retR, thN, z0)
+                            fluxPt(rPole, thN, z0),
+                            fluxPt(rCross, thMid - h * 0.10, z0),
+                            fluxPt(rCross, thMid, z0),
+                            fluxPt(rCross, thMid + h * 0.10, z0),
+                            fluxPt(rPole, thS, z0),
+                            fluxPt(rRet, thS + h * 0.25, z0),
+                            fluxPt(rRet, thMid, z0),
+                            fluxPt(rRet, thN - h * 0.25, z0)
                         ];
                         const curve = new THREE.CatmullRomCurve3(pts, true);
-                        const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 60, FLUX_TUBE_R, 4, true), mat);
+                        const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, FLUX_TUBE_R, 4, true), mat);
                         tube.renderOrder = 998;
                         targetGroup.add(tube);
-                        // 方向箭头：画在每根细磁力线峰顶，非常小，指向 N → S
-                        const pArrow = fluxPt(peakR, thMid, z0 + 0.002);
-                        const pTarget = fluxPt(Ssurf + n * 0.00004, thS, z0);
+                        // 方向箭头：在气隙中段，指向 N → S
+                        const pArrow = fluxPt(rCross, thMid - h * 0.05, z0);
+                        const pTarget = fluxPt(rCross, thMid + h * 0.05, z0);
                         const dir = new THREE.Vector3().subVectors(pTarget, pArrow).normalize();
                         const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.00008, 0.00035, 8), arrowMat);
                         arrow.position.copy(pArrow);
@@ -868,27 +876,25 @@
             }
         }
 
-        // 1) 转子磁场：N→S 穿过气隙，经转子轭返回，绑定到转子随其转动
+        // 1) 转子磁场：转子磁钢 N→S 穿过气隙，经定子齿/轭返回，再沿转子轭闭合，绑定到转子随其转动
         const rotorFieldGroup = new THREE.Group();
         rotorGroup.add(rotorFieldGroup);
         makeFluxField(rotorFieldGroup, {
             color: 0xffdd00,
-            Nsurf: R_MAGNET_OUT + 0.0003,
-            Ssurf: R_MAGNET_OUT + 0.0003,
-            peakRange: [R_STATOR_OUT + 0.001, 0.0004],
-            returnRange: [R_MAGNET_OUT - 0.001, 0.0002],
+            rPole: R_MAGNET_IN,
+            rGap: R_STATOR_OUT,
+            rBack: R_MAGNET_OUT + 0.0015,
             arrowColor: 0xffb700
         });
 
-        // 2) 定子磁场：N→S 从定子齿出发，穿过气隙/转子，再经定子轭返回
+        // 2) 定子磁场：定子齿 N→S 穿过气隙进入转子，再经相邻 S 齿回到定子轭闭合
         const statorFieldGroup = new THREE.Group();
         motorGroup.add(statorFieldGroup);
         makeFluxField(statorFieldGroup, {
             color: 0x38bdf8,
-            Nsurf: R_STATOR_OUT - 0.0003,
-            Ssurf: R_STATOR_OUT - 0.0003,
-            peakRange: [R_MAGNET_IN - 0.001, -0.0004],
-            returnRange: [R_STATOR_YOKE - 0.0003, -0.0002],
+            rPole: R_STATOR_OUT,
+            rGap: R_MAGNET_IN,
+            rBack: R_STATOR_YOKE - 0.0015,
             arrowColor: 0x0ea5e9
         });
 
@@ -900,10 +906,9 @@
         makeFluxField(combinedFieldGroup, {
             color: 0xc0f08a,
             phaseOffset: Math.PI / (4 * MOTOR.polePairs),
-            Nsurf: (R_MAGNET_OUT + R_STATOR_OUT) / 2,
-            Ssurf: (R_MAGNET_OUT + R_STATOR_OUT) / 2,
-            peakRange: [R_STATOR_OUT + 0.002, 0.0005],
-            returnRange: [R_STATOR_YOKE + 0.001, 0.0002],
+            rPole: (R_STATOR_OUT + R_MAGNET_IN) / 2,
+            rGap: R_STATOR_OUT,
+            rBack: R_MAGNET_IN,
             arrowColor: 0xa3e635
         });
 
