@@ -223,7 +223,7 @@
         <div class="main-layout">
             <div class="canvas-wrap">
                 <canvas id="canvas"></canvas>
-                <div class="overlay-hint">拖拽旋转 · 滚轮缩放 · 右键平移 · 双击导线单独显示</div>
+                <div class="overlay-hint">拖拽旋转 · 滚轮缩放 · 右键平移 · 双击显示整相绕组</div>
                 <div class="legend">
                     <span><span class="dot" style="background:#dc2626"></span> A 相绕组</span>
                     <span><span class="dot" style="background:#ca8a04"></span> B 相绕组</span>
@@ -601,11 +601,11 @@
         const erX = Math.cos(TERM_ANGLE), erY = Math.sin(TERM_ANGLE);
 
         function wirePt(r, th, z) { return new THREE.Vector3(r * Math.cos(th), r * Math.sin(th), z); }
-        function wireTube(pts, colorHex, radius) {
+        function wireTube(pts, colorHex, radius, ph) {
             const curve = new THREE.CatmullRomCurve3(pts);
             const geo = new THREE.TubeGeometry(curve, Math.max(32, pts.length * 8), radius || 0.00075, 6);
             const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colorHex }));
-            mesh.userData.isWire = true; // 标记为“线”，供双击单独显示
+            mesh.userData.isWire = ph || true; // 标记为“线”并记录所属相，供双击整相显示
             return mesh;
         }
         function arcPts(pts, r, th0, th1, z) { // 沿短弧方向把 th0→th1 的采样点追加到 pts
@@ -627,7 +627,7 @@
                 const pts = [wirePt(rStem, th0, zCoilEnd), wirePt(rBus, th0, zBus)];
                 arcPts(pts, rBus, th0, th1, zBus);
                 pts.push(wirePt(rStem, th1, zCoilEnd));
-                wiringGroup.add(wireTube(pts, col));
+                wiringGroup.add(wireTube(pts, col, undefined, ph));
             }
             // 2) 相引出线：首线圈底端 → 引出线环 → 机壳侧面端子
             const thStart = slotAngle(slots[0]);
@@ -635,7 +635,7 @@
             const leadPts = [wirePt(rStem, thStart, zCoilEnd), wirePt(rLead, thStart, zBus)];
             arcPts(leadPts, rLead, thStart, thPin, zBus);
             leadPts.push(wirePt(0.0275, thPin, -0.016), wirePt(0.0335, thPin, -0.012));
-            wiringGroup.add(wireTube(leadPts, col, 0.00085));
+            wiringGroup.add(wireTube(leadPts, col, 0.00085, ph));
             // 3) 星点线：末线圈底端 → 径向汇入中心公共星点
             const thEnd = slotAngle(slots[slots.length - 1]);
             wiringGroup.add(wireTube([
@@ -643,7 +643,7 @@
                 wirePt(rBus, thEnd, zBus),
                 wirePt(0.005, thEnd, zBus),
                 new THREE.Vector3(0, 0, zBus)
-            ], col));
+            ], col, undefined, ph));
         });
 
         // 公共星点（Y 接法中点）
@@ -750,10 +750,11 @@
         xrayTargets.forEach((m) => {
             m.userData._xray = { o: m.material.opacity, t: m.material.transparent, dw: m.material.depthWrite };
         });
-        function setXray(on) {
+        function setXray(on, opacity) {
+            const x = opacity === undefined ? 0.08 : opacity;
             xrayTargets.forEach((m) => {
                 const mat = m.material, saved = m.userData._xray;
-                if (on) { mat.transparent = true; mat.opacity = 0.08; mat.depthWrite = false; }
+                if (on) { mat.transparent = true; mat.opacity = x; mat.depthWrite = false; }
                 else { mat.opacity = saved.o; mat.transparent = saved.t; mat.depthWrite = saved.dw; }
             });
         }
@@ -1017,28 +1018,37 @@
             }
         });
 
-        // ===== 双击某根线（线圈或连接线）：其余所有线变为幽灵透明，单独看清这根线的走线 =====
-        // 实现方式：非目标线统一换成共享的幽灵材质（不改动各自原材质，恢复时换回来），
-        // 这样不受同相线圈共享材质的影响；双击空白处或再次双击同一根线恢复原状
+        // ===== 双击某根线（线圈或连接线）：单独显示该线所属的整相绕组 =====
+        // 同相 8 个线圈及其串联线/引出线/星点线保持原色，其余两相的线变为幽灵透明；
+        // 磁钢/铁芯等遮挡件同时淡出为半透明（恢复时还原），整相走线一览无余。
+        // 双击另一相切换，双击空白处或再次双击同相恢复。
+        // 非目标线统一换共享幽灵材质（不改动原材质，恢复时换回），不受同相共享材质影响。
         const wireMeshes = [...coilList.map((c) => c.group), ...wiringGroup.children.filter((o) => o.userData.isWire)];
         const ghostMat = new THREE.MeshBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.06, depthWrite: false });
-        let isolatedMesh = null;
+        const xrayChk = document.getElementById('xrayWindings');
+        let isolatedPhase = null;
+        let xrayAuto = false; // 隔离时自动开启的遮挡件淡出（区别于手动勾选的透视模式）
+        function wirePhase(m) {
+            return m.userData.coilIndex !== undefined ? coilList[m.userData.coilIndex].phase : m.userData.isWire;
+        }
         function clearIsolation() {
-            if (!isolatedMesh) return;
+            if (!isolatedPhase) return;
             wireMeshes.forEach((m) => {
                 if (m.userData._ownMat) { m.material = m.userData._ownMat; delete m.userData._ownMat; }
             });
-            isolatedMesh = null;
+            isolatedPhase = null;
+            if (xrayAuto) { setXray(xrayChk.checked); xrayAuto = false; }
         }
-        function isolateWire(mesh) {
-            if (isolatedMesh === mesh) { clearIsolation(); return; }
+        function isolatePhase(phase) {
+            if (isolatedPhase === phase) { clearIsolation(); return; }
             clearIsolation();
-            isolatedMesh = mesh;
+            isolatedPhase = phase;
             wireMeshes.forEach((m) => {
-                if (m === mesh) return;
+                if (wirePhase(m) === phase) return;
                 if (!m.userData._ownMat) m.userData._ownMat = m.material;
                 m.material = ghostMat;
             });
+            if (!xrayChk.checked) { setXray(true, 0.18); xrayAuto = true; }
         }
         canvas.addEventListener('dblclick', (e) => {
             const rect = canvas.getBoundingClientRect();
@@ -1052,7 +1062,7 @@
                 let o = h.object;
                 while (o && o.userData.coilIndex === undefined && !o.userData.isWire) o = o.parent;
                 if (!o) continue;
-                isolateWire(o.userData.coilIndex !== undefined ? coilList[o.userData.coilIndex].group : o);
+                isolatePhase(o.userData.coilIndex !== undefined ? coilList[o.userData.coilIndex].phase : o.userData.isWire);
                 return;
             }
             clearIsolation(); // 双击空白处恢复
@@ -1096,7 +1106,7 @@
             ctx.fillText(`幅值 ${Math.abs(Iamp).toFixed(2)} A · 横轴：电角度（2 周期）`, 6, 12);
         }
         showField.addEventListener('change', (e) => { state.showField = e.target.checked; fieldGroup.visible = state.showField; });
-        document.getElementById('xrayWindings').addEventListener('change', (e) => setXray(e.target.checked));
+        document.getElementById('xrayWindings').addEventListener('change', (e) => { xrayAuto = false; setXray(e.target.checked); });
         showCurrent.addEventListener('change', (e) => { state.showCurrent = e.target.checked; });
         playPauseBtn.addEventListener('click', () => {
             state.running = !state.running;
