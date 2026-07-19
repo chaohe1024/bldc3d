@@ -801,80 +801,100 @@
         }
 
         // ===== 旋转磁场可视化 =====
-        // 提供三种磁场显示模式：转子永磁磁场 / 定子旋转磁场 / 两者叠加
-        // 磁力线都做得很细很密：每个极对画多层、多根嵌套回路， tube 半径仅 0.15mm
+        // 三种模式：关闭 / 转子永磁磁场 / 定子旋转磁场 / 两者叠加（显示合成磁场，非两独立场同时显示）
+        // 磁力线做得很细（管径 0.16mm）、很密（每极对 8 根 × 4 层）、半透明；
+        // 并在每个极对的空气隙段加了方向箭头，指向 N → S。
+        function fluxPt(r, th, z) { return new THREE.Vector3(r * Math.cos(th), r * Math.sin(th), z); }
+
+        const FIELD_LAYERS = 4;
+        const LINES_PER_POLE = 8;
+        const FLUX_TUBE_R = 0.00008; // 0.08mm 半径，很细
+        const FLUX_OPACITY = 0.42;   // 半透明、淡一些
+
+        function makeFluxField(targetGroup, cfg) {
+            const { color, phaseOffset, Nsurf, Ssurf, peakRange, returnRange, arrowColor } = cfg;
+            const mat = new THREE.MeshStandardMaterial({
+                color, emissive: color, emissiveIntensity: 0.32,
+                transparent: true, opacity: FLUX_OPACITY, depthTest: false
+            });
+            const arrowMat = new THREE.MeshStandardMaterial({
+                color: arrowColor || color, emissive: arrowColor || color, emissiveIntensity: 0.55,
+                transparent: true, opacity: FLUX_OPACITY + 0.1, depthTest: false
+            });
+            for (let i = 0; i < MOTOR.polePairs; i++) {
+                const thN = i * Math.PI / 7 + (phaseOffset || 0);
+                const thS = thN + Math.PI / 14;
+                const thMid = thN + Math.PI / 28;
+                for (let layer = 0; layer < FIELD_LAYERS; layer++) {
+                    const z0 = (layer - 1) * 0.006;
+                    for (let n = 0; n < LINES_PER_POLE; n++) {
+                        const peakR = peakRange[0] + n * peakRange[1];
+                        const retR = returnRange[0] + n * returnRange[1];
+                        const pts = [
+                            fluxPt(Nsurf + n * 0.00004, thN, z0),
+                            fluxPt(peakR, thMid, z0 + 0.002),
+                            fluxPt(Ssurf + n * 0.00004, thS, z0),
+                            fluxPt(retR, thS, z0),
+                            fluxPt(retR, thN, z0)
+                        ];
+                        const curve = new THREE.CatmullRomCurve3(pts, true);
+                        const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 60, FLUX_TUBE_R, 4, true), mat);
+                        tube.renderOrder = 998;
+                        targetGroup.add(tube);
+                    }
+                    // 方向箭头：在最外层空气隙峰顶，指向 N → S（切向）
+                    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.0005, 0.0012, 8), arrowMat);
+                    arrow.rotation.z = thMid;
+                    arrow.position.copy(fluxPt(peakRange[0], thMid, z0 + 0.002));
+                    arrow.renderOrder = 999;
+                    targetGroup.add(arrow);
+                }
+            }
+        }
 
         // 1) 转子磁场：N→S 穿过气隙，经转子轭返回，绑定到转子随其转动
         const rotorFieldGroup = new THREE.Group();
         rotorGroup.add(rotorFieldGroup);
-        const rotorFluxMat = new THREE.MeshStandardMaterial({
-            color: 0xffdd00, emissive: 0xffdd00, emissiveIntensity: 0.5,
-            transparent: true, opacity: 0.8, depthTest: false
+        makeFluxField(rotorFieldGroup, {
+            color: 0xffdd00,
+            Nsurf: R_MAGNET_OUT + 0.0003,
+            Ssurf: R_MAGNET_OUT + 0.0003,
+            peakRange: [R_STATOR_OUT + 0.001, 0.0004],
+            returnRange: [R_MAGNET_OUT - 0.001, 0.0002],
+            arrowColor: 0xffb700
         });
-        function fluxPt(r, th, z) { return new THREE.Vector3(r * Math.cos(th), r * Math.sin(th), z); }
-        const R_FIELD_PEAK = R_STATOR_OUT + 0.004; // 转子磁力线最高点（稍超出定子齿顶）
-        const R_ROTOR_RETURN = R_MAGNET_OUT - 0.001;
-        const FIELD_LAYERS = 3;
-        const LINES_PER_POLE = 5;
-        for (let i = 0; i < MOTOR.polePairs; i++) {
-            const thN = i * Math.PI / 7;
-            const thS = thN + Math.PI / 14;
-            const thMid = thN + Math.PI / 28;
-            for (let layer = 0; layer < FIELD_LAYERS; layer++) {
-                const z0 = (layer - 1) * 0.008;
-                for (let n = 0; n < LINES_PER_POLE; n++) {
-                    const peakR = R_STATOR_OUT + 0.001 + n * 0.0006;
-                    const returnR = R_ROTOR_RETURN + n * 0.00025;
-                    const pts = [
-                        fluxPt(R_MAGNET_OUT + 0.0005, thN, z0),
-                        fluxPt(peakR, thMid, z0 + 0.003),
-                        fluxPt(R_MAGNET_OUT + 0.0005, thS, z0),
-                        fluxPt(returnR, thS, z0),
-                        fluxPt(returnR, thN, z0)
-                    ];
-                    const curve = new THREE.CatmullRomCurve3(pts, true);
-                    const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, 0.00015, 5, true), rotorFluxMat);
-                    tube.renderOrder = 998;
-                    rotorFieldGroup.add(tube);
-                }
-            }
-        }
 
         // 2) 定子磁场：N→S 从定子齿出发，穿过气隙/转子，再经定子轭返回
-        //    在本地坐标系中绘制，整体随电角度旋转（group 转 thetaE/p）
         const statorFieldGroup = new THREE.Group();
         motorGroup.add(statorFieldGroup);
-        const statorFluxMat = new THREE.MeshStandardMaterial({
-            color: 0x38bdf8, emissive: 0x38bdf8, emissiveIntensity: 0.5,
-            transparent: true, opacity: 0.75, depthTest: false
+        makeFluxField(statorFieldGroup, {
+            color: 0x38bdf8,
+            Nsurf: R_STATOR_OUT - 0.0003,
+            Ssurf: R_STATOR_OUT - 0.0003,
+            peakRange: [R_MAGNET_IN - 0.001, -0.0004],
+            returnRange: [R_STATOR_YOKE - 0.0003, -0.0002],
+            arrowColor: 0x0ea5e9
         });
-        for (let i = 0; i < MOTOR.polePairs; i++) {
-            const thN = i * Math.PI / 7;
-            const thS = thN + Math.PI / 14;
-            const thMid = thN + Math.PI / 28;
-            for (let layer = 0; layer < FIELD_LAYERS; layer++) {
-                const z0 = (layer - 1) * 0.008;
-                for (let n = 0; n < LINES_PER_POLE; n++) {
-                    const deepR = R_MAGNET_IN - 0.001 - n * 0.0005;
-                    const yokeR = R_STATOR_YOKE - n * 0.0003;
-                    const pts = [
-                        fluxPt(R_STATOR_OUT - 0.0005, thN, z0),
-                        fluxPt(deepR, thMid, z0 + 0.003),
-                        fluxPt(R_STATOR_OUT - 0.0005, thS, z0),
-                        fluxPt(yokeR, thS, z0),
-                        fluxPt(yokeR, thN, z0)
-                    ];
-                    const curve = new THREE.CatmullRomCurve3(pts, true);
-                    const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, 0.00015, 5, true), statorFluxMat);
-                    tube.renderOrder = 999;
-                    statorFieldGroup.add(tube);
-                }
-            }
-        }
+
+        // 3) 两者叠加：显示合成磁场（不是同时显示两个独立场）。
+        //    典型 BLDC 中定子磁场超前转子磁场约 90° 电角度以产生转矩；
+        //    合成场相位取两者之间（45° 电角度），用独立颜色表示。
+        const combinedFieldGroup = new THREE.Group();
+        motorGroup.add(combinedFieldGroup);
+        makeFluxField(combinedFieldGroup, {
+            color: 0xc0f08a,
+            phaseOffset: Math.PI / (4 * MOTOR.polePairs),
+            Nsurf: (R_MAGNET_OUT + R_STATOR_OUT) / 2,
+            Ssurf: (R_MAGNET_OUT + R_STATOR_OUT) / 2,
+            peakRange: [R_STATOR_OUT + 0.002, 0.0005],
+            returnRange: [R_STATOR_YOKE + 0.001, 0.0002],
+            arrowColor: 0xa3e635
+        });
 
         function applyFieldMode() {
-            rotorFieldGroup.visible = (state.fieldMode === 'rotor' || state.fieldMode === 'both');
-            statorFieldGroup.visible = (state.fieldMode === 'stator' || state.fieldMode === 'both');
+            rotorFieldGroup.visible = (state.fieldMode === 'rotor');
+            statorFieldGroup.visible = (state.fieldMode === 'stator');
+            combinedFieldGroup.visible = (state.fieldMode === 'both');
         }
 
         // ===== 行星减速器 =====
@@ -1262,8 +1282,9 @@
             rotorGroup.rotation.z = thetaM;
 
             // 旋转磁场：转子磁力线已绑定到 rotorGroup，随转子同步转动；
-            // 定子旋转磁场在本地坐标系绘制，整体以电角度 / 极对数旋转
+            // 定子磁场与合成磁场在定子坐标系中绘制，稳态下三者空间转速相同（= 机械转速）
             statorFieldGroup.rotation.z = thetaE / MOTOR.polePairs;
+            combinedFieldGroup.rotation.z = thetaE / MOTOR.polePairs;
             // 三相电流 → 对应相绕组发光（幅值随转速百分比变化）
             const drive = state.showCurrent ? state.speedPercent / 100 : 0;
             ['A', 'B', 'C'].forEach((ph) => {
